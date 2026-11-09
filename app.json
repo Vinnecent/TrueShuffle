@@ -33,7 +33,15 @@
         }
       ],
       "expo-image",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "# WorkManager (expo-background-task) creates its Room database by reflection; R8 must keep the constructors.\n-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.** { *; }"
+          }
+        }
+      ]
     ],
     "scheme": "trueshuffle",
     "experiments": {
