@@ -31,6 +31,8 @@ const FILTERS: { key: keyof ShuffleFilters; label: string }[] = [
   { key: 'excludeAcoustic', label: 'Exclude acoustic' },
   { key: 'excludeRemix', label: 'Exclude remix' },
   { key: 'excludeLive', label: 'Exclude live' },
+  { key: 'excludeIntro', label: 'Exclude intro songs' },
+  { key: 'excludeInstrumental', label: 'Exclude instrumental' },
 ];
 
 export default function QueueScreen() {

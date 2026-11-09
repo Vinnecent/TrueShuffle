@@ -91,7 +91,7 @@ const SHUFFLE_TRACKS_WHERE = `
       AND aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)
   )`;
 
-/** Title filters for the shuffle, chosen on the Queue tab. */
+/** Filters for the shuffle, chosen on the Queue tab. */
 export type ShuffleFilters = {
   /** Skip songs with "acoustic" in the title. */
   excludeAcoustic: boolean;
@@ -99,12 +99,18 @@ export type ShuffleFilters = {
   excludeRemix: boolean;
   /** Skip live recordings ("Song - Live", "Song (Live at …)", "Song [Live]"). */
   excludeLive: boolean;
+  /** Skip intros: the first song of a multi-track release when it is shorter than 1:30. */
+  excludeIntro: boolean;
+  /** Skip songs with "instrumental" in the title. */
+  excludeInstrumental: boolean;
 };
 
 export const DEFAULT_SHUFFLE_FILTERS: ShuffleFilters = {
   excludeAcoustic: false,
   excludeRemix: false,
   excludeLive: false,
+  excludeIntro: false,
+  excludeInstrumental: false,
 };
 
 /** Meta keys of the filters; Clear library keeps every `filter_` key (they are preferences, not synced data). */
@@ -112,15 +118,36 @@ const FILTER_KEYS: Record<keyof ShuffleFilters, string> = {
   excludeAcoustic: 'filter_exclude_acoustic',
   excludeRemix: 'filter_exclude_remix',
   excludeLive: 'filter_exclude_live',
+  excludeIntro: 'filter_exclude_intro',
+  excludeInstrumental: 'filter_exclude_instrumental',
 };
 
-/** Titles each filter removes (case-insensitive). */
-const FILTER_PATTERNS: Record<keyof ShuffleFilters, RegExp> = {
-  excludeAcoustic: /acoustic/i,
-  excludeRemix: /remix/i,
+/** Intros are at most this long (1:30). */
+const INTRO_MAX_MS = 90_000;
+
+type ShuffleCandidate = {
+  id: string;
+  name: string;
+  artists: string;
+  disc_number: number;
+  track_number: number;
+  duration_ms: number;
+  album_total_tracks: number;
+};
+
+const LIVE_PATTERN =
   // "live" as a whole word in the version part of the title: after " - " or inside ( ) / [ ].
   // Keeps titles like "Alive", "Olive" or "Live Forever".
-  excludeLive: /\s[-–—]\s.*\blive\b|[([][^)\]]*\blive\b/i,
+  /\s[-–—]\s.*\blive\b|[([][^)\]]*\blive\b/i;
+
+/** What each filter removes; titles are matched case-insensitively. */
+const FILTER_TESTS: Record<keyof ShuffleFilters, (t: ShuffleCandidate) => boolean> = {
+  excludeAcoustic: (t) => /acoustic/i.test(t.name),
+  excludeRemix: (t) => /remix/i.test(t.name),
+  excludeLive: (t) => LIVE_PATTERN.test(t.name),
+  excludeIntro: (t) =>
+    t.disc_number === 1 && t.track_number === 1 && t.duration_ms < INTRO_MAX_MS && t.album_total_tracks > 1,
+  excludeInstrumental: (t) => /instrumental/i.test(t.name),
 };
 
 export async function getShuffleFilters(db: SQLiteDatabase): Promise<ShuffleFilters> {
@@ -138,22 +165,24 @@ export async function setShuffleFilter(db: SQLiteDatabase, filter: keyof Shuffle
   await setMeta(db, FILTER_KEYS[filter], enabled ? '1' : '0');
 }
 
-/** Whether a song title passes the enabled filters. */
-export function passesShuffleFilters(title: string, filters: ShuffleFilters): boolean {
-  for (const key of Object.keys(FILTER_PATTERNS) as (keyof ShuffleFilters)[]) {
-    if (filters[key] && FILTER_PATTERNS[key].test(title)) return false;
+/** Whether a song passes the enabled filters. */
+function passesShuffleFilters(track: ShuffleCandidate, filters: ShuffleFilters): boolean {
+  for (const key of Object.keys(FILTER_TESTS) as (keyof ShuffleFilters)[]) {
+    if (filters[key] && FILTER_TESTS[key](track)) return false;
   }
   return true;
 }
 
-type ShuffleCandidate = { id: string; name: string; artists: string };
-
-/** Songs the shuffle may pick: excluded artists left out in SQL, title filters applied here. */
+/** Songs the shuffle may pick: excluded artists left out in SQL, the filters applied here. */
 async function getShuffleCandidates(db: SQLiteDatabase, filters: ShuffleFilters): Promise<ShuffleCandidate[]> {
   const rows = await db.getAllAsync<ShuffleCandidate>(
-    `SELECT t.id, t.name, t.artists FROM tracks t WHERE ${SHUFFLE_TRACKS_WHERE}`,
+    `SELECT t.id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+            al.total_tracks AS album_total_tracks
+     FROM tracks t
+     JOIN albums al ON al.id = t.album_id
+     WHERE ${SHUFFLE_TRACKS_WHERE}`,
   );
-  return rows.filter((t) => passesShuffleFilters(t.name, filters));
+  return rows.filter((t) => passesShuffleFilters(t, filters));
 }
 
 /** Number of stored songs the shuffle can draw from (excluded artists and filters applied). */
