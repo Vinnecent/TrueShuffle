@@ -44,7 +44,7 @@ import {
   syncLibrary,
   type SyncProgress,
 } from '@/spotify/sync';
-import { colors } from '@/theme';
+import { colors, formatDateTime } from '@/theme';
 
 const SPOTIFY_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
 
@@ -236,10 +236,10 @@ export default function SettingsScreen() {
           <Text style={screen.stats}>
             {stats.artists} artists · {stats.albums} releases · {stats.tracks.toLocaleString()} songs
             {'\n'}Artists scanned: {stats.scannedArtists} of {stats.artists}
-            {'\n'}Last sync: {stats.lastSync ? new Date(stats.lastSync).toLocaleString() : 'never'}
+            {'\n'}Last sync: {stats.lastSync ? formatDateTime(stats.lastSync) : 'never'}
             {syncInterrupted && !syncing ? '\nLast sync was interrupted. Syncing again continues it.' : ''}
             {rateLimitedUntil && !syncing
-              ? `\nSpotify asks to wait until ${rateLimitedUntil.toLocaleString()} before syncing again.`
+              ? `\nSpotify asks to wait until ${formatDateTime(rateLimitedUntil)} before syncing again.`
               : ''}
           </Text>
         )}
@@ -277,7 +277,7 @@ export default function SettingsScreen() {
               </Text>
               {background.status && (
                 <Text style={screen.help}>
-                  Last run {new Date(background.status.at).toLocaleString()}: {background.status.message}
+                  Last run {formatDateTime(background.status.at)}: {background.status.message}
                 </Text>
               )}
             </View>

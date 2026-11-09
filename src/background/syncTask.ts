@@ -13,6 +13,7 @@ import {
   SYNC_STARTED_KEY,
   syncLibrary,
 } from '@/spotify/sync';
+import { formatDateTime } from '@/theme';
 
 /**
  * Background sync: Android (WorkManager) runs this every now and then, even when the app is closed.
@@ -32,13 +33,12 @@ const STATUS_KEY = 'background_sync_status';
 
 export type BackgroundSyncStatus = { at: string; message: string };
 
-const formatTime = (d: Date) => d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
 
 async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
   if (isSyncRunning()) return 'Skipped: a sync was already running in the app.';
 
   const blockedUntil = await getRateLimitedUntil(db);
-  if (blockedUntil) return `Waiting for Spotify’s limit to end (${formatTime(blockedUntil)}).`;
+  if (blockedUntil) return `Waiting for Spotify’s limit to end (${formatDateTime(blockedUntil)}).`;
 
   if (!(await isLoggedIn())) return 'Not connected to Spotify. Sync once in the app to log in.';
 
@@ -57,7 +57,7 @@ async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
   } catch (e) {
     if (e instanceof RateLimitError) {
       const until = await getRateLimitedUntil(db);
-      return `Spotify’s limit reached. Continues after ${until ? formatTime(until) : 'the wait'}.`;
+      return `Spotify’s limit reached. Continues after ${until ? formatDateTime(until) : 'the wait'}.`;
     }
     if (e instanceof NotAuthenticatedError) return 'Spotify login expired. Sync once in the app to log in again.';
     return `Failed: ${(e as Error).message}`;

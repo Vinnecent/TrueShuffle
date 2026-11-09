@@ -38,3 +38,14 @@ export function formatDuration(ms: number): string {
   const total = Math.round(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
+
+/**
+ * Local date and time as "dd/mm/yyyy HH:MM" (24-hour clock), e.g. "09/11/2026 14:57".
+ * Built by hand so the format is the same whatever the phone's locale settings are.
+ */
+export function formatDateTime(value: Date | string): string {
+  const d = typeof value === 'string' ? new Date(value) : value;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const date = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
