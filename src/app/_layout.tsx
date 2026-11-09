@@ -1,3 +1,6 @@
+// Defines the background sync task; must be loaded before anything else (see the file).
+import '@/background/syncTask';
+
 import { Stack, ThemeProvider } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';

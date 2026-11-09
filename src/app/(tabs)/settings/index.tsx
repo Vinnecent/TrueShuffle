@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
+import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +17,13 @@ import {
   View,
 } from 'react-native';
 
+import {
+  getBackgroundSyncStatus,
+  isBackgroundSyncAvailable,
+  isBackgroundSyncEnabled,
+  setBackgroundSyncEnabled,
+  type BackgroundSyncStatus,
+} from '@/background/syncTask';
 import { Button } from '@/components/ui';
 import { clearLibrary, getLibraryStats, getMeta, type LibraryStats } from '@/db/queries';
 import { RateLimitError } from '@/spotify/api';
@@ -29,7 +37,13 @@ import {
   REDIRECT_URI,
   saveCredentials,
 } from '@/spotify/auth';
-import { SYNC_STARTED_KEY, syncLibrary, type SyncProgress } from '@/spotify/sync';
+import {
+  getRateLimitedUntil,
+  SYNC_STARTED_KEY,
+  SyncInProgressError,
+  syncLibrary,
+  type SyncProgress,
+} from '@/spotify/sync';
 import { colors } from '@/theme';
 
 const SPOTIFY_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
@@ -44,15 +58,31 @@ export default function SettingsScreen() {
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [syncInterrupted, setSyncInterrupted] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [rateLimitedUntil, setRateLimitedUntil] = useState<Date | null>(null);
+  const [background, setBackground] = useState<{
+    available: boolean;
+    enabled: boolean;
+    status: BackgroundSyncStatus | null;
+  } | null>(null);
+  const [togglingBackground, setTogglingBackground] = useState(false);
 
   const apply = useCallback((state: Awaited<ReturnType<typeof loadState>>) => {
     setSavedCreds(state.creds);
     setConnected(state.loggedIn);
     setStats(state.stats);
     setSyncInterrupted(state.syncInterrupted);
+    setRateLimitedUntil(state.rateLimitedUntil);
+    setBackground(state.background);
   }, []);
 
   const refresh = useCallback(async () => apply(await loadState(db)), [apply, db]);
+
+  // The background sync may have changed the library while this tab was not shown.
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -98,7 +128,9 @@ export default function SettingsScreen() {
     } catch (e) {
       const resumeHint =
         '\n\nEverything synced so far is saved. Tap Sync again later and it continues where it stopped.';
-      if (e instanceof RateLimitError) {
+      if (e instanceof SyncInProgressError) {
+        Alert.alert('Already syncing', 'The background sync is running right now. Try again in a few minutes.');
+      } else if (e instanceof RateLimitError) {
         Alert.alert('Spotify rate limit reached', e.message + resumeHint);
       } else {
         Alert.alert('Sync failed', (e as Error).message + resumeHint);
@@ -112,6 +144,19 @@ export default function SettingsScreen() {
   const disconnect = async () => {
     await logout();
     await refresh();
+  };
+
+  const toggleBackground = async () => {
+    if (!background) return;
+    setTogglingBackground(true);
+    try {
+      await setBackgroundSyncEnabled(!background.enabled);
+    } catch (e) {
+      Alert.alert('Could not change background sync', (e as Error).message);
+    } finally {
+      setTogglingBackground(false);
+      await refresh();
+    }
   };
 
   const wipeLibrary = async () => {
@@ -193,6 +238,9 @@ export default function SettingsScreen() {
             {'\n'}Artists scanned: {stats.scannedArtists} of {stats.artists}
             {'\n'}Last sync: {stats.lastSync ? new Date(stats.lastSync).toLocaleString() : 'never'}
             {syncInterrupted && !syncing ? '\nLast sync was interrupted. Syncing again continues it.' : ''}
+            {rateLimitedUntil && !syncing
+              ? `\nSpotify asks to wait until ${rateLimitedUntil.toLocaleString()} before syncing again.`
+              : ''}
           </Text>
         )}
 
@@ -205,6 +253,36 @@ export default function SettingsScreen() {
         {progress && <SyncStatus progress={progress} />}
         {!hasCreds && <Text style={screen.help}>Save your Client ID and Client Secret first.</Text>}
         {dirty && hasCreds && <Text style={screen.help}>Save your changed credentials first.</Text>}
+
+        {background && (
+          <Pressable
+            onPress={toggleBackground}
+            disabled={!background.available || togglingBackground}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: background.enabled, disabled: !background.available }}
+            style={({ pressed }) => [screen.checkRow, pressed && screen.redirectPressed]}
+          >
+            <Ionicons
+              name={background.enabled ? 'checkbox' : 'square-outline'}
+              size={24}
+              color={background.enabled ? colors.accent : colors.textMuted}
+            />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={screen.checkTitle}>Background sync</Text>
+              <Text style={screen.help}>
+                {background.available
+                  ? 'Continues the sync every few hours, even when the app is closed. Android decides ' +
+                    'when it runs, usually while the phone is idle or charging.'
+                  : 'Background tasks are not available on this device.'}
+              </Text>
+              {background.status && (
+                <Text style={screen.help}>
+                  Last run {new Date(background.status.at).toLocaleString()}: {background.status.message}
+                </Text>
+              )}
+            </View>
+          </Pressable>
+        )}
 
         {connected && (
           <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
@@ -276,13 +354,25 @@ function CopyRedirectUri() {
 }
 
 async function loadState(db: SQLiteDatabase) {
-  const [creds, loggedIn, stats, syncStartedAt] = await Promise.all([
-    getCredentials(),
-    isLoggedIn(),
-    getLibraryStats(db),
-    getMeta(db, SYNC_STARTED_KEY),
-  ]);
-  return { creds, loggedIn, stats, syncInterrupted: syncStartedAt !== null };
+  const [creds, loggedIn, stats, syncStartedAt, rateLimitedUntil, bgAvailable, bgEnabled, bgStatus] =
+    await Promise.all([
+      getCredentials(),
+      isLoggedIn(),
+      getLibraryStats(db),
+      getMeta(db, SYNC_STARTED_KEY),
+      getRateLimitedUntil(db),
+      isBackgroundSyncAvailable().catch(() => false),
+      isBackgroundSyncEnabled().catch(() => false),
+      getBackgroundSyncStatus(db),
+    ]);
+  return {
+    creds,
+    loggedIn,
+    stats,
+    syncInterrupted: syncStartedAt !== null,
+    rateLimitedUntil,
+    background: { available: bgAvailable, enabled: bgEnabled, status: bgStatus },
+  };
 }
 
 const screen = StyleSheet.create({
@@ -310,6 +400,15 @@ const screen = StyleSheet.create({
     padding: 12,
   },
   redirectPressed: { backgroundColor: colors.surfaceRaised },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: 12,
+  },
+  checkTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
   mono: { color: colors.accent, fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), fontSize: 13 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 12 },
   stats: { color: colors.text, fontSize: 14, lineHeight: 20 },

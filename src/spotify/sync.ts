@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getMeta, setMeta } from '@/db/queries';
 import {
   getAlbumTracks,
+  RateLimitError,
   getArtistAlbums,
   getFollowedArtists,
   pickImage,
@@ -22,7 +23,27 @@ export type SyncProgress = {
   note?: string;
 };
 
-export type SyncResult = { artists: number; albums: number; tracks: number; resumed: boolean };
+export type SyncResult = {
+  artists: number;
+  albums: number;
+  tracks: number;
+  resumed: boolean;
+  /** False when the sync stopped early because its time budget ran out (it continues next time). */
+  completed: boolean;
+};
+
+export type SyncOptions = {
+  /** Epoch ms after which no new artist is started; the sync then saves and returns early. */
+  deadline?: number;
+};
+
+/** Thrown when a sync is started while another one (foreground or background) is still running. */
+export class SyncInProgressError extends Error {
+  constructor() {
+    super('A sync is already running.');
+    this.name = 'SyncInProgressError';
+  }
+}
 
 /**
  * Artists processed in parallel. Kept low on purpose: Development Mode apps have a small
@@ -34,14 +55,37 @@ const CONCURRENCY = 2;
 export const SYNC_STARTED_KEY = 'sync_started_at';
 /** When the last sync (complete or interrupted) ended. */
 const LAST_SYNC_KEY = 'last_sync';
+/** When the last sync that went through every artist finished. */
+export const LAST_FULL_SYNC_KEY = 'last_full_sync';
+/** Epoch ms until which Spotify asked us not to send requests (from the last long 429). */
+export const RATE_LIMITED_UNTIL_KEY = 'rate_limited_until';
 
-/** Runs `worker` over `items` with at most `limit` in flight at once. */
-async function runPool<T>(items: readonly T[], limit: number, worker: (item: T) => Promise<void>) {
+let running = false;
+
+/** Whether a sync is running right now in this JS runtime. */
+export function isSyncRunning(): boolean {
+  return running;
+}
+
+/** When Spotify's last long rate-limit block ends, or null if there is none (or it is over). */
+export async function getRateLimitedUntil(db: SQLiteDatabase): Promise<Date | null> {
+  const value = Number(await getMeta(db, RATE_LIMITED_UNTIL_KEY));
+  return Number.isFinite(value) && value > Date.now() ? new Date(value) : null;
+}
+/**
+ * Runs `worker` over `items` with at most `limit` in flight at once.
+ * Stops handing out new items once a worker failed or `shouldStop()` returns true.
+ */
+async function runPool<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+  shouldStop: () => boolean = () => false,
+) {
   let index = 0;
   let failed = false;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    // Stop handing out new work once any worker failed, so the sync ends promptly.
-    while (!failed && index < items.length) {
+    while (!failed && !shouldStop() && index < items.length) {
       try {
         await worker(items[index++]);
       } catch (e) {
@@ -74,7 +118,10 @@ function createWriteLock() {
 export async function syncLibrary(
   db: SQLiteDatabase,
   onProgress: (p: SyncProgress) => void = () => {},
+  { deadline = Infinity }: SyncOptions = {},
 ): Promise<SyncResult> {
+  if (running) throw new SyncInProgressError();
+  running = true;
   const withLock = createWriteLock();
   let last: SyncProgress = { phase: 'Fetching followed artists', done: 0, total: 0 };
   const report = (p: Partial<SyncProgress>) => {
@@ -129,19 +176,41 @@ export async function syncLibrary(
         db.runAsync('UPDATE artists SET albums_synced_at = ? WHERE id = ?', new Date().toISOString(), artist.id),
       );
       report({ done: ++done });
-    });
+    }, () => Date.now() >= deadline);
+
+    if (done < artists.length) {
+      // Out of time: everything so far is saved and the next run continues from here.
+      const tracksNow = await countTracks(db);
+      return { artists: artists.length, albums: 0, tracks: tracksNow, resumed, completed: false };
+    }
 
     // 3. Everything fetched: drop releases no followed artist lists any more.
     //    Cascades remove their songs and any queue entries pointing at them.
     report({ phase: 'Cleaning up', done: 0, total: 0 });
     await withLock(() => db.execAsync('DELETE FROM albums WHERE id NOT IN (SELECT album_id FROM artist_albums)'));
     await db.runAsync('DELETE FROM meta WHERE key = ?', SYNC_STARTED_KEY);
+    await setMeta(db, LAST_FULL_SYNC_KEY, new Date().toISOString());
 
     const totals = await db.getFirstAsync<{ albums: number; tracks: number }>(
       'SELECT (SELECT COUNT(*) FROM albums) AS albums, (SELECT COUNT(*) FROM tracks) AS tracks',
     );
-    return { artists: artists.length, albums: totals?.albums ?? 0, tracks: totals?.tracks ?? 0, resumed };
+    return {
+      artists: artists.length,
+      albums: totals?.albums ?? 0,
+      tracks: totals?.tracks ?? 0,
+      resumed,
+      completed: true,
+    };
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      // Remember the block so neither the background task nor the UI sends requests before it ends.
+      await setMeta(db, RATE_LIMITED_UNTIL_KEY, String(Date.now() + e.retryAfterSeconds * 1000)).catch(
+        () => undefined,
+      );
+    }
+    throw e;
   } finally {
+    running = false;
     setRateLimitListener(null);
     if (savedAnything) await setMeta(db, LAST_SYNC_KEY, new Date().toISOString()).catch(() => undefined);
   }

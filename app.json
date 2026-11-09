@@ -32,7 +32,8 @@
           "resizeMode": "contain"
         }
       ],
-      "expo-image"
+      "expo-image",
+      "expo-background-task"
     ],
     "scheme": "trueshuffle",
     "experiments": {
