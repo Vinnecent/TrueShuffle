@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
+import { Image } from 'expo-image';
 import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,7 +17,7 @@ import {
 } from 'react-native';
 
 import { Button } from '@/components/ui';
-import { getLibraryStats, getMeta, type LibraryStats } from '@/db/queries';
+import { clearLibrary, getLibraryStats, getMeta, type LibraryStats } from '@/db/queries';
 import { RateLimitError } from '@/spotify/api';
 import {
   ensureLoggedInWithScopes,
@@ -42,6 +43,7 @@ export default function SettingsScreen() {
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [syncInterrupted, setSyncInterrupted] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const apply = useCallback((state: Awaited<ReturnType<typeof loadState>>) => {
     setSavedCreds(state.creds);
@@ -112,6 +114,31 @@ export default function SettingsScreen() {
     await refresh();
   };
 
+  const wipeLibrary = async () => {
+    setClearing(true);
+    try {
+      await clearLibrary(db);
+      await Promise.all([Image.clearDiskCache(), Image.clearMemoryCache()]);
+    } catch (e) {
+      Alert.alert('Could not clear the library', (e as Error).message);
+    } finally {
+      setClearing(false);
+      await refresh();
+    }
+  };
+
+  const confirmClearLibrary = () =>
+    Alert.alert(
+      'Clear library?',
+      'This deletes all synced artists, releases and songs, the queue, the sync progress and the cached ' +
+        'artwork from this phone. Your Spotify login, credentials and the playlist in Spotify are kept.\n\n' +
+        'Syncing everything again can take several days because of Spotify’s limits.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear library', style: 'destructive', onPress: wipeLibrary },
+      ],
+    );
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={screen.container} contentContainerStyle={screen.content} keyboardShouldPersistTaps="handled">
@@ -173,7 +200,7 @@ export default function SettingsScreen() {
           title={syncInterrupted ? 'Continue sync' : 'Sync library from Spotify'}
           onPress={sync}
           loading={syncing}
-          disabled={!hasCreds || dirty || syncing}
+          disabled={!hasCreds || dirty || syncing || clearing}
         />
         {progress && <SyncStatus progress={progress} />}
         {!hasCreds && <Text style={screen.help}>Save your Client ID and Client Secret first.</Text>}
@@ -181,6 +208,15 @@ export default function SettingsScreen() {
 
         {connected && (
           <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
+        )}
+        {stats && (stats.artists > 0 || stats.lastSync !== null) && (
+          <Button
+            title="Clear library"
+            variant="danger"
+            onPress={confirmClearLibrary}
+            loading={clearing}
+            disabled={syncing || clearing}
+          />
         )}
       </ScrollView>
     </KeyboardAvoidingView>

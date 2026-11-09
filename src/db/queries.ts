@@ -164,6 +164,23 @@ export async function clearQueue(db: SQLiteDatabase): Promise<void> {
   await db.runAsync('DELETE FROM queue');
 }
 
+/**
+ * Deletes everything synced from Spotify: artists, releases, songs, the queue and the sync
+ * progress (meta). Credentials and the Spotify login live in secure storage and are not touched.
+ */
+export async function clearLibrary(db: SQLiteDatabase): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.execAsync(`
+      DELETE FROM queue;
+      DELETE FROM tracks;
+      DELETE FROM artist_albums;
+      DELETE FROM albums;
+      DELETE FROM artists;
+      DELETE FROM meta;
+    `);
+  });
+}
+
 // ---------------------------------------------------------------- meta
 
 export async function getMeta(db: SQLiteDatabase, key: string): Promise<string | null> {
