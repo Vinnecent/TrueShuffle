@@ -10,6 +10,8 @@ export type ArtistRow = {
   image_url: string | null;
   album_count: number;
   track_count: number;
+  /** 1 if the artist is excluded from the shuffle. */
+  excluded: number;
 };
 
 export type AlbumRow = {
@@ -58,7 +60,8 @@ export function getArtists(db: SQLiteDatabase): Promise<ArtistRow[]> {
   return db.getAllAsync<ArtistRow>(`
     SELECT ar.id, ar.name, ar.image_url,
            COUNT(DISTINCT aa.album_id) AS album_count,
-           COUNT(t.id)                 AS track_count
+           COUNT(t.id)                 AS track_count,
+           EXISTS (SELECT 1 FROM excluded_artists e WHERE e.artist_id = ar.id) AS excluded
     FROM artists ar
     LEFT JOIN artist_albums aa ON aa.artist_id = ar.id
     LEFT JOIN tracks t         ON t.album_id = aa.album_id
@@ -67,11 +70,33 @@ export function getArtists(db: SQLiteDatabase): Promise<ArtistRow[]> {
   `);
 }
 
-export function getArtist(db: SQLiteDatabase, artistId: string) {
-  return db.getFirstAsync<{ id: string; name: string; image_url: string | null }>(
-    'SELECT id, name, image_url FROM artists WHERE id = ?',
+export async function getArtist(db: SQLiteDatabase, artistId: string) {
+  const row = await db.getFirstAsync<{ id: string; name: string; image_url: string | null; excluded: number }>(
+    `SELECT id, name, image_url,
+            EXISTS (SELECT 1 FROM excluded_artists e WHERE e.artist_id = artists.id) AS excluded
+     FROM artists WHERE id = ?`,
     artistId,
   );
+  return row ? { ...row, excluded: row.excluded === 1 } : null;
+}
+
+/**
+ * Songs the shuffle may pick: those on a release of at least one followed artist that is not excluded.
+ * A release shared by an excluded and an included artist therefore stays in the shuffle.
+ */
+const SHUFFLE_TRACKS_WHERE = `
+  EXISTS (
+    SELECT 1 FROM artist_albums aa
+    WHERE aa.album_id = t.album_id
+      AND aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)
+  )`;
+
+/** Number of stored songs the shuffle can draw from (excluded artists left out). */
+export async function countShuffleTracks(db: SQLiteDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM tracks t WHERE ${SHUFFLE_TRACKS_WHERE}`,
+  );
+  return row?.n ?? 0;
 }
 
 export type AlbumWithTracks = AlbumRow & { tracks: TrackRow[] };
@@ -126,19 +151,23 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
   return {
     artists: row?.artists ?? 0,
     scannedArtists: row?.scanned ?? 0,
-    albums: row?.albums ?? 0, tracks: row?.tracks ?? 0, lastSync };
+    albums: row?.albums ?? 0,
+    tracks: row?.tracks ?? 0,
+    lastSync,
+  };
 }
 
 // ---------------------------------------------------------------- queue writes
 
 /**
  * Replaces the local queue with up to MAX_QUEUE_SIZE songs drawn uniformly at random
- * (without replacement, using a cryptographically secure RNG) from every stored track.
+ * (without replacement, using a cryptographically secure RNG) from every stored track,
+ * except songs that only belong to excluded artists.
  * Songs with the same title + artists (e.g. a single that is also on the album) are only picked once.
  */
 export async function generateShuffledQueue(db: SQLiteDatabase): Promise<number> {
   const all = await db.getAllAsync<{ id: string; name: string; artists: string }>(
-    'SELECT id, name, artists FROM tracks',
+    `SELECT t.id, t.name, t.artists FROM tracks t WHERE ${SHUFFLE_TRACKS_WHERE}`,
   );
   const picked = pickRandomUnique(all, MAX_QUEUE_SIZE, (t) =>
     `${t.name.trim().toLowerCase()}\u0000${t.artists.toLowerCase()}`,
@@ -154,6 +183,14 @@ export async function generateShuffledQueue(db: SQLiteDatabase): Promise<number>
     }
   });
   return picked.length;
+}
+
+export async function setArtistExcluded(db: SQLiteDatabase, artistId: string, excluded: boolean) {
+  if (excluded) {
+    await db.runAsync('INSERT OR IGNORE INTO excluded_artists (artist_id) VALUES (?)', artistId);
+  } else {
+    await db.runAsync('DELETE FROM excluded_artists WHERE artist_id = ?', artistId);
+  }
 }
 
 export async function removeFromQueue(db: SQLiteDatabase, position: number): Promise<void> {
@@ -172,6 +209,7 @@ export async function clearLibrary(db: SQLiteDatabase): Promise<void> {
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.execAsync(`
       DELETE FROM queue;
+      DELETE FROM excluded_artists;
       DELETE FROM tracks;
       DELETE FROM artist_albums;
       DELETE FROM albums;

@@ -59,12 +59,13 @@ export default function ArtistsScreen() {
           <Link href={{ pathname: '/artists/[id]', params: { id: item.id } }} asChild>
             <Pressable style={screen.row}>
               <Artwork uri={item.image_url} size={52} round />
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, opacity: item.excluded ? 0.5 : 1 }}>
                 <Text style={screen.name} numberOfLines={1}>
                   {item.name}
                 </Text>
                 <Text style={screen.meta}>
                   {item.album_count} releases · {item.track_count} songs
+                  {item.excluded ? ' · Excluded from shuffle' : ''}
                 </Text>
               </View>
             </Pressable>

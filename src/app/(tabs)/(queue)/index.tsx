@@ -5,6 +5,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import {
+  countShuffleTracks,
   generateShuffledQueue,
   getLibraryStats,
   getQueue,
@@ -26,13 +27,16 @@ export default function QueueScreen() {
   const router = useRouter();
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [libraryTracks, setLibraryTracks] = useState<number | null>(null);
+  /** Songs the shuffle can draw from (excluded artists left out). */
+  const [shuffleTracks, setShuffleTracks] = useState(0);
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
 
   const load = useCallback(async () => {
-    const [rows, stats] = await Promise.all([getQueue(db), getLibraryStats(db)]);
+    const [rows, stats, eligible] = await Promise.all([getQueue(db), getLibraryStats(db), countShuffleTracks(db)]);
     setQueue(rows);
     setLibraryTracks(stats.tracks);
+    setShuffleTracks(eligible);
   }, [db]);
 
   useFocusEffect(
@@ -122,11 +126,17 @@ export default function QueueScreen() {
     <View style={screen.container}>
       <View style={screen.header}>
         <Text style={screen.summary}>
-          {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {libraryTracks.toLocaleString()}
+          {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
         </Text>
         <View style={screen.actions}>
           <View style={{ flex: 1 }}>
-            <Button title="Shuffle" variant="secondary" onPress={shuffle} loading={shuffling} disabled={sending} />
+            <Button
+              title="Shuffle"
+              variant="secondary"
+              onPress={shuffle}
+              loading={shuffling}
+              disabled={sending || shuffleTracks === 0}
+            />
           </View>
           <View style={{ flex: 1 }}>
             <Button
@@ -144,9 +154,15 @@ export default function QueueScreen() {
         keyExtractor={(item) => String(item.position)}
         contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={
-          <EmptyState title="No songs queued">
-            <Text style={ui.muted}>Tap Shuffle to draw {MAX_QUEUE_SIZE} random songs from your library.</Text>
-          </EmptyState>
+          shuffleTracks === 0 ? (
+            <EmptyState title="Every artist is excluded">
+              <Text style={ui.muted}>Open an artist on the Artists tab and include them in the shuffle again.</Text>
+            </EmptyState>
+          ) : (
+            <EmptyState title="No songs queued">
+              <Text style={ui.muted}>Tap Shuffle to draw {MAX_QUEUE_SIZE} random songs from your library.</Text>
+            </EmptyState>
+          )
         }
         renderItem={({ item, index }) => (
           <Pressable onLongPress={() => confirmRemove(item)} style={screen.row}>

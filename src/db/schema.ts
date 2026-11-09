@@ -53,6 +53,11 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE
     );
 
+    -- Artists the user excluded from the shuffle (kept separate so syncing never touches it).
+    CREATE TABLE IF NOT EXISTS excluded_artists (
+      artist_id TEXT PRIMARY KEY NOT NULL REFERENCES artists(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY NOT NULL,
       value TEXT
