@@ -1,0 +1,93 @@
+import { Link, useFocusEffect, useRouter } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useMemo, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
+import { getArtists, type ArtistRow } from '@/db/queries';
+import { colors } from '@/theme';
+
+export default function ArtistsScreen() {
+  const db = useSQLiteContext();
+  const router = useRouter();
+  const [artists, setArtists] = useState<ArtistRow[] | null>(null);
+  const [filter, setFilter] = useState('');
+
+  useFocusEffect(
+    useCallback(() => {
+      getArtists(db).then(setArtists);
+    }, [db]),
+  );
+
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    const all = artists ?? [];
+    return q ? all.filter((a) => a.name.toLowerCase().includes(q)) : all;
+  }, [artists, filter]);
+
+  if (artists === null) return <View style={screen.container} />;
+
+  if (artists.length === 0) {
+    return (
+      <View style={screen.container}>
+        <EmptyState title="No artists yet">
+          <Text style={ui.muted}>Add your Spotify Client ID and Secret, then sync your followed artists.</Text>
+          <Button title="Go to Settings" onPress={() => router.navigate('/settings')} />
+        </EmptyState>
+      </View>
+    );
+  }
+
+  return (
+    <View style={screen.container}>
+      <TextInput
+        value={filter}
+        onChangeText={setFilter}
+        placeholder={`Search ${artists.length} artists`}
+        placeholderTextColor={colors.textMuted}
+        style={screen.search}
+        autoCorrect={false}
+        clearButtonMode="while-editing"
+      />
+      <FlatList
+        data={visible}
+        keyExtractor={(a) => a.id}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ flexGrow: 1 }}
+        ListEmptyComponent={<EmptyState title="No matching artists" />}
+        renderItem={({ item }) => (
+          <Link href={{ pathname: '/artists/[id]', params: { id: item.id } }} asChild>
+            <Pressable style={screen.row}>
+              <Artwork uri={item.image_url} size={52} round />
+              <View style={{ flex: 1 }}>
+                <Text style={screen.name} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={screen.meta}>
+                  {item.album_count} releases · {item.track_count} songs
+                </Text>
+              </View>
+            </Pressable>
+          </Link>
+        )}
+      />
+    </View>
+  );
+}
+
+const screen = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  search: {
+    margin: 16,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceRaised,
+    color: colors.text,
+    fontSize: 15,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 8 },
+  name: { color: colors.text, fontSize: 16, fontWeight: '600' },
+  meta: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+});

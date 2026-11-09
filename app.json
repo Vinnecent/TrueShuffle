@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "TrueShuffle",
+    "slug": "trueshuffle",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.trueshuffle.app"
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false,
+      "package": "com.trueshuffle.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.ico"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#121212",
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-image"
+    ],
+    "scheme": "trueshuffle",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
