@@ -7,6 +7,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import {
   countShuffleTracks,
+  DEFAULT_SHUFFLE_FILTERS,
   generateShuffledQueue,
   getLibraryStats,
   getQueue,
@@ -29,6 +30,7 @@ import { colors, formatDuration } from '@/theme';
 const FILTERS: { key: keyof ShuffleFilters; label: string }[] = [
   { key: 'excludeAcoustic', label: 'Exclude acoustic' },
   { key: 'excludeRemix', label: 'Exclude remix' },
+  { key: 'excludeLive', label: 'Exclude live' },
 ];
 
 export default function QueueScreen() {
@@ -38,7 +40,7 @@ export default function QueueScreen() {
   const [libraryTracks, setLibraryTracks] = useState<number | null>(null);
   /** Songs the shuffle can draw from (excluded artists and filters applied). */
   const [shuffleTracks, setShuffleTracks] = useState(0);
-  const [filters, setFilters] = useState<ShuffleFilters>({ excludeAcoustic: false, excludeRemix: false });
+  const [filters, setFilters] = useState<ShuffleFilters>(DEFAULT_SHUFFLE_FILTERS);
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
 

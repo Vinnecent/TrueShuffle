@@ -97,52 +97,68 @@ export type ShuffleFilters = {
   excludeAcoustic: boolean;
   /** Skip songs with "remix" in the title. */
   excludeRemix: boolean;
+  /** Skip live recordings ("Song - Live", "Song (Live at …)", "Song [Live]"). */
+  excludeLive: boolean;
+};
+
+export const DEFAULT_SHUFFLE_FILTERS: ShuffleFilters = {
+  excludeAcoustic: false,
+  excludeRemix: false,
+  excludeLive: false,
 };
 
 /** Meta keys of the filters; Clear library keeps every `filter_` key (they are preferences, not synced data). */
 const FILTER_KEYS: Record<keyof ShuffleFilters, string> = {
   excludeAcoustic: 'filter_exclude_acoustic',
   excludeRemix: 'filter_exclude_remix',
+  excludeLive: 'filter_exclude_live',
 };
 
-/** Words a filter removes. SQLite's LIKE ignores case for ASCII, so "Acoustic" and "REMIX" match too. */
-const FILTER_WORDS: Record<keyof ShuffleFilters, string> = {
-  excludeAcoustic: 'acoustic',
-  excludeRemix: 'remix',
+/** Titles each filter removes (case-insensitive). */
+const FILTER_PATTERNS: Record<keyof ShuffleFilters, RegExp> = {
+  excludeAcoustic: /acoustic/i,
+  excludeRemix: /remix/i,
+  // "live" as a whole word in the version part of the title: after " - " or inside ( ) / [ ].
+  // Keeps titles like "Alive", "Olive" or "Live Forever".
+  excludeLive: /\s[-–—]\s.*\blive\b|[([][^)\]]*\blive\b/i,
 };
 
 export async function getShuffleFilters(db: SQLiteDatabase): Promise<ShuffleFilters> {
   const rows = await db.getAllAsync<{ key: string; value: string | null }>(
     `SELECT key, value FROM meta WHERE key LIKE 'filter!_%' ESCAPE '!'`,
   );
-  const on = (key: string) => rows.some((r) => r.key === key && r.value === '1');
-  return { excludeAcoustic: on(FILTER_KEYS.excludeAcoustic), excludeRemix: on(FILTER_KEYS.excludeRemix) };
+  const filters = { ...DEFAULT_SHUFFLE_FILTERS };
+  for (const key of Object.keys(FILTER_KEYS) as (keyof ShuffleFilters)[]) {
+    filters[key] = rows.some((r) => r.key === FILTER_KEYS[key] && r.value === '1');
+  }
+  return filters;
 }
 
 export async function setShuffleFilter(db: SQLiteDatabase, filter: keyof ShuffleFilters, enabled: boolean) {
   await setMeta(db, FILTER_KEYS[filter], enabled ? '1' : '0');
 }
 
-/** WHERE clause + parameters for the songs the shuffle may pick (excluded artists and filters applied). */
-function shuffleWhere(filters: ShuffleFilters): { sql: string; params: string[] } {
-  const parts = [SHUFFLE_TRACKS_WHERE];
-  const params: string[] = [];
-  for (const key of Object.keys(FILTER_WORDS) as (keyof ShuffleFilters)[]) {
-    if (!filters[key]) continue;
-    parts.push('t.name NOT LIKE ?');
-    params.push(`%${FILTER_WORDS[key]}%`);
+/** Whether a song title passes the enabled filters. */
+export function passesShuffleFilters(title: string, filters: ShuffleFilters): boolean {
+  for (const key of Object.keys(FILTER_PATTERNS) as (keyof ShuffleFilters)[]) {
+    if (filters[key] && FILTER_PATTERNS[key].test(title)) return false;
   }
-  return { sql: parts.join(' AND '), params };
+  return true;
+}
+
+type ShuffleCandidate = { id: string; name: string; artists: string };
+
+/** Songs the shuffle may pick: excluded artists left out in SQL, title filters applied here. */
+async function getShuffleCandidates(db: SQLiteDatabase, filters: ShuffleFilters): Promise<ShuffleCandidate[]> {
+  const rows = await db.getAllAsync<ShuffleCandidate>(
+    `SELECT t.id, t.name, t.artists FROM tracks t WHERE ${SHUFFLE_TRACKS_WHERE}`,
+  );
+  return rows.filter((t) => passesShuffleFilters(t.name, filters));
 }
 
 /** Number of stored songs the shuffle can draw from (excluded artists and filters applied). */
 export async function countShuffleTracks(db: SQLiteDatabase, filters: ShuffleFilters): Promise<number> {
-  const where = shuffleWhere(filters);
-  const row = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM tracks t WHERE ${where.sql}`,
-    where.params,
-  );
-  return row?.n ?? 0;
+  return (await getShuffleCandidates(db, filters)).length;
 }
 
 export type AlbumWithTracks = AlbumRow & { tracks: TrackRow[] };
@@ -212,11 +228,7 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
  * Songs with the same title + artists (e.g. a single that is also on the album) are only picked once.
  */
 export async function generateShuffledQueue(db: SQLiteDatabase, filters: ShuffleFilters): Promise<number> {
-  const where = shuffleWhere(filters);
-  const all = await db.getAllAsync<{ id: string; name: string; artists: string }>(
-    `SELECT t.id, t.name, t.artists FROM tracks t WHERE ${where.sql}`,
-    where.params,
-  );
+  const all = await getShuffleCandidates(db, filters);
   const picked = pickRandomUnique(all, MAX_QUEUE_SIZE, (t) =>
     `${t.name.trim().toLowerCase()}\u0000${t.artists.toLowerCase()}`,
   );
