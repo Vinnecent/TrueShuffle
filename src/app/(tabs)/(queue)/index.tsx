@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
@@ -9,9 +10,12 @@ import {
   generateShuffledQueue,
   getLibraryStats,
   getQueue,
+  getShuffleFilters,
   MAX_QUEUE_SIZE,
   removeFromQueue,
+  setShuffleFilter,
   type QueueRow,
+  type ShuffleFilters,
 } from '@/db/queries';
 import { ensureLoggedInWithScopes, NotAuthenticatedError } from '@/spotify/auth';
 import {
@@ -22,20 +26,32 @@ import {
 } from '@/spotify/playback';
 import { colors, formatDuration } from '@/theme';
 
+const FILTERS: { key: keyof ShuffleFilters; label: string }[] = [
+  { key: 'excludeAcoustic', label: 'Exclude acoustic' },
+  { key: 'excludeRemix', label: 'Exclude remix' },
+];
+
 export default function QueueScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [libraryTracks, setLibraryTracks] = useState<number | null>(null);
-  /** Songs the shuffle can draw from (excluded artists left out). */
+  /** Songs the shuffle can draw from (excluded artists and filters applied). */
   const [shuffleTracks, setShuffleTracks] = useState(0);
+  const [filters, setFilters] = useState<ShuffleFilters>({ excludeAcoustic: false, excludeRemix: false });
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
 
   const load = useCallback(async () => {
-    const [rows, stats, eligible] = await Promise.all([getQueue(db), getLibraryStats(db), countShuffleTracks(db)]);
+    const savedFilters = await getShuffleFilters(db);
+    const [rows, stats, eligible] = await Promise.all([
+      getQueue(db),
+      getLibraryStats(db),
+      countShuffleTracks(db, savedFilters),
+    ]);
     setQueue(rows);
     setLibraryTracks(stats.tracks);
+    setFilters(savedFilters);
     setShuffleTracks(eligible);
   }, [db]);
 
@@ -48,11 +64,18 @@ export default function QueueScreen() {
   const shuffle = async () => {
     setShuffling(true);
     try {
-      await generateShuffledQueue(db);
+      await generateShuffledQueue(db, filters);
       await load();
     } finally {
       setShuffling(false);
     }
+  };
+
+  const toggleFilter = async (key: keyof ShuffleFilters) => {
+    const next = { ...filters, [key]: !filters[key] };
+    setFilters(next);
+    await setShuffleFilter(db, key, next[key]);
+    setShuffleTracks(await countShuffleTracks(db, next));
   };
 
   const play = async (playlistId: string) => {
@@ -128,6 +151,28 @@ export default function QueueScreen() {
         <Text style={screen.summary}>
           {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
         </Text>
+        <View style={screen.filters}>
+          {FILTERS.map(({ key, label }) => {
+            const on = filters[key];
+            return (
+              <Pressable
+                key={key}
+                onPress={() => toggleFilter(key)}
+                disabled={shuffling}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on }}
+                style={({ pressed }) => [screen.filter, on && screen.filterOn, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons
+                  name={on ? 'checkbox' : 'square-outline'}
+                  size={18}
+                  color={on ? colors.accent : colors.textMuted}
+                />
+                <Text style={[screen.filterText, on && { color: colors.text }]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <View style={screen.actions}>
           <View style={{ flex: 1 }}>
             <Button
@@ -155,8 +200,11 @@ export default function QueueScreen() {
         contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={
           shuffleTracks === 0 ? (
-            <EmptyState title="Every artist is excluded">
-              <Text style={ui.muted}>Open an artist on the Artists tab and include them in the shuffle again.</Text>
+            <EmptyState title="Nothing left to shuffle">
+              <Text style={ui.muted}>
+                Every song is excluded by an artist exclusion or a filter. Turn a filter off, or include an artist
+                again on the Artists tab.
+              </Text>
             </EmptyState>
           ) : (
             <EmptyState title="No songs queued">
@@ -189,6 +237,20 @@ const screen = StyleSheet.create({
   header: { padding: 16, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   summary: { color: colors.textMuted, fontSize: 13 },
   actions: { flexDirection: 'row', gap: 12 },
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  filter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterOn: { borderColor: colors.accent },
+  filterText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
   index: { color: colors.textMuted, width: 22, textAlign: 'right', fontVariant: ['tabular-nums'] },
   rowText: { flex: 1 },

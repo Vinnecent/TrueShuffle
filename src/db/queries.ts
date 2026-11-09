@@ -91,10 +91,56 @@ const SHUFFLE_TRACKS_WHERE = `
       AND aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)
   )`;
 
-/** Number of stored songs the shuffle can draw from (excluded artists left out). */
-export async function countShuffleTracks(db: SQLiteDatabase): Promise<number> {
+/** Title filters for the shuffle, chosen on the Queue tab. */
+export type ShuffleFilters = {
+  /** Skip songs with "acoustic" in the title. */
+  excludeAcoustic: boolean;
+  /** Skip songs with "remix" in the title. */
+  excludeRemix: boolean;
+};
+
+/** Meta keys of the filters; Clear library keeps every `filter_` key (they are preferences, not synced data). */
+const FILTER_KEYS: Record<keyof ShuffleFilters, string> = {
+  excludeAcoustic: 'filter_exclude_acoustic',
+  excludeRemix: 'filter_exclude_remix',
+};
+
+/** Words a filter removes. SQLite's LIKE ignores case for ASCII, so "Acoustic" and "REMIX" match too. */
+const FILTER_WORDS: Record<keyof ShuffleFilters, string> = {
+  excludeAcoustic: 'acoustic',
+  excludeRemix: 'remix',
+};
+
+export async function getShuffleFilters(db: SQLiteDatabase): Promise<ShuffleFilters> {
+  const rows = await db.getAllAsync<{ key: string; value: string | null }>(
+    `SELECT key, value FROM meta WHERE key LIKE 'filter!_%' ESCAPE '!'`,
+  );
+  const on = (key: string) => rows.some((r) => r.key === key && r.value === '1');
+  return { excludeAcoustic: on(FILTER_KEYS.excludeAcoustic), excludeRemix: on(FILTER_KEYS.excludeRemix) };
+}
+
+export async function setShuffleFilter(db: SQLiteDatabase, filter: keyof ShuffleFilters, enabled: boolean) {
+  await setMeta(db, FILTER_KEYS[filter], enabled ? '1' : '0');
+}
+
+/** WHERE clause + parameters for the songs the shuffle may pick (excluded artists and filters applied). */
+function shuffleWhere(filters: ShuffleFilters): { sql: string; params: string[] } {
+  const parts = [SHUFFLE_TRACKS_WHERE];
+  const params: string[] = [];
+  for (const key of Object.keys(FILTER_WORDS) as (keyof ShuffleFilters)[]) {
+    if (!filters[key]) continue;
+    parts.push('t.name NOT LIKE ?');
+    params.push(`%${FILTER_WORDS[key]}%`);
+  }
+  return { sql: parts.join(' AND '), params };
+}
+
+/** Number of stored songs the shuffle can draw from (excluded artists and filters applied). */
+export async function countShuffleTracks(db: SQLiteDatabase, filters: ShuffleFilters): Promise<number> {
+  const where = shuffleWhere(filters);
   const row = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM tracks t WHERE ${SHUFFLE_TRACKS_WHERE}`,
+    `SELECT COUNT(*) AS n FROM tracks t WHERE ${where.sql}`,
+    where.params,
   );
   return row?.n ?? 0;
 }
@@ -162,12 +208,14 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
 /**
  * Replaces the local queue with up to MAX_QUEUE_SIZE songs drawn uniformly at random
  * (without replacement, using a cryptographically secure RNG) from every stored track,
- * except songs that only belong to excluded artists.
+ * except songs that only belong to excluded artists or are removed by the title filters.
  * Songs with the same title + artists (e.g. a single that is also on the album) are only picked once.
  */
-export async function generateShuffledQueue(db: SQLiteDatabase): Promise<number> {
+export async function generateShuffledQueue(db: SQLiteDatabase, filters: ShuffleFilters): Promise<number> {
+  const where = shuffleWhere(filters);
   const all = await db.getAllAsync<{ id: string; name: string; artists: string }>(
-    `SELECT t.id, t.name, t.artists FROM tracks t WHERE ${SHUFFLE_TRACKS_WHERE}`,
+    `SELECT t.id, t.name, t.artists FROM tracks t WHERE ${where.sql}`,
+    where.params,
   );
   const picked = pickRandomUnique(all, MAX_QUEUE_SIZE, (t) =>
     `${t.name.trim().toLowerCase()}\u0000${t.artists.toLowerCase()}`,
@@ -203,7 +251,7 @@ export async function clearQueue(db: SQLiteDatabase): Promise<void> {
 
 /**
  * Deletes everything synced from Spotify: artists, releases, songs, the queue and the sync
- * progress (meta). Credentials and the Spotify login live in secure storage and are not touched.
+ * progress (meta). The shuffle filters are kept. Credentials and the Spotify login live in secure storage and are not touched.
  */
 export async function clearLibrary(db: SQLiteDatabase): Promise<void> {
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -214,7 +262,7 @@ export async function clearLibrary(db: SQLiteDatabase): Promise<void> {
       DELETE FROM artist_albums;
       DELETE FROM albums;
       DELETE FROM artists;
-      DELETE FROM meta;
+      DELETE FROM meta WHERE key NOT LIKE 'filter!_%' ESCAPE '!';
     `);
   });
 }
