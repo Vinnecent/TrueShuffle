@@ -38,6 +38,8 @@
         "expo-build-properties",
         {
           "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
             "extraProguardRules": "# WorkManager (expo-background-task) creates its Room database by reflection; R8 must keep the constructors.\n-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.** { *; }"
           }
         }

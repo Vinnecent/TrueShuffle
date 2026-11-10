@@ -173,15 +173,28 @@ function passesShuffleFilters(track: ShuffleCandidate, filters: ShuffleFilters):
   return true;
 }
 
-/** Songs the shuffle may pick: excluded artists left out in SQL, the filters applied here. */
-async function getShuffleCandidates(db: SQLiteDatabase, filters: ShuffleFilters): Promise<ShuffleCandidate[]> {
-  const rows = await db.getAllAsync<ShuffleCandidate>(
-    `SELECT t.id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+/**
+ * Songs the shuffle may pick, with the filters applied in JS.
+ * Without `artistId`: every song except those only on excluded artists' releases.
+ * With `artistId`: only songs on that artist's releases (the same songs as their artist page),
+ * whether or not the artist is excluded from the normal shuffle.
+ */
+async function getShuffleCandidates(
+  db: SQLiteDatabase,
+  filters: ShuffleFilters,
+  artistId?: string,
+): Promise<ShuffleCandidate[]> {
+  const select = `SELECT t.id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
             al.total_tracks AS album_total_tracks
      FROM tracks t
-     JOIN albums al ON al.id = t.album_id
-     WHERE ${SHUFFLE_TRACKS_WHERE}`,
-  );
+     JOIN albums al ON al.id = t.album_id`;
+  const rows = artistId
+    ? await db.getAllAsync<ShuffleCandidate>(
+        `${select}
+         WHERE t.album_id IN (SELECT album_id FROM artist_albums WHERE artist_id = ?)`,
+        artistId,
+      )
+    : await db.getAllAsync<ShuffleCandidate>(`${select} WHERE ${SHUFFLE_TRACKS_WHERE}`);
   return rows.filter((t) => passesShuffleFilters(t, filters));
 }
 
@@ -255,9 +268,14 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
  * (without replacement, using a cryptographically secure RNG) from every stored track,
  * except songs that only belong to excluded artists or are removed by the title filters.
  * Songs with the same title + artists (e.g. a single that is also on the album) are only picked once.
+ * With `artistId`, the songs are drawn only from that artist's releases.
  */
-export async function generateShuffledQueue(db: SQLiteDatabase, filters: ShuffleFilters): Promise<number> {
-  const all = await getShuffleCandidates(db, filters);
+export async function generateShuffledQueue(
+  db: SQLiteDatabase,
+  filters: ShuffleFilters,
+  artistId?: string,
+): Promise<number> {
+  const all = await getShuffleCandidates(db, filters, artistId);
   const picked = pickRandomUnique(all, MAX_QUEUE_SIZE, (t) =>
     `${t.name.trim().toLowerCase()}\u0000${t.artists.toLowerCase()}`,
   );

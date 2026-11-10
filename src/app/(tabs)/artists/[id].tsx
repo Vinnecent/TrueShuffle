@@ -1,11 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork, EmptyState } from '@/components/ui';
-import { getArtist, getArtistDiscography, setArtistExcluded, type AlbumWithTracks } from '@/db/queries';
+import {
+  generateShuffledQueue,
+  getArtist,
+  getArtistDiscography,
+  getShuffleFilters,
+  setArtistExcluded,
+  type AlbumWithTracks,
+} from '@/db/queries';
 import { colors, countLabel, formatDuration } from '@/theme';
 
 const TYPE_LABEL: Record<string, string> = { album: 'Album', single: 'Single / EP', compilation: 'Compilation' };
@@ -13,9 +20,11 @@ const TYPE_LABEL: Record<string, string> = { album: 'Album', single: 'Single / E
 export default function ArtistDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useSQLiteContext();
+  const router = useRouter();
   const [name, setName] = useState('');
   const [albums, setAlbums] = useState<AlbumWithTracks[] | null>(null);
   const [excluded, setExcluded] = useState<boolean | null>(null);
+  const [shuffling, setShuffling] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +51,25 @@ export default function ArtistDetailScreen() {
     }
   };
 
+  /** Builds the queue from this artist's songs only (with the Queue tab's filters), then opens the Queue tab. */
+  const shuffleArtist = async () => {
+    setShuffling(true);
+    try {
+      const filters = await getShuffleFilters(db);
+      const count = await generateShuffledQueue(db, filters, id);
+      if (count === 0) {
+        Alert.alert('Nothing to shuffle', 'Your filters on the Queue tab remove every song by this artist.');
+        return;
+      }
+      router.navigate('/');
+    } catch (e) {
+      Alert.alert('Could not shuffle', e instanceof Error ? e.message : String(e));
+    } finally {
+      setShuffling(false);
+    }
+  };
+
+  const hasSongs = useMemo(() => (albums ?? []).some((a) => a.tracks.length > 0), [albums]);
   const sections = useMemo(() => (albums ?? []).map((album) => ({ album, data: album.tracks })), [albums]);
 
   return (
@@ -54,24 +82,41 @@ export default function ArtistDetailScreen() {
         contentContainerStyle={{ flexGrow: 1 }}
         ListHeaderComponent={
           excluded === null ? undefined : (
-            <Pressable
-              onPress={toggleExcluded}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: excluded }}
-              style={({ pressed }) => [screen.exclude, pressed && screen.excludePressed]}
-            >
-              <Ionicons
-                name={excluded ? 'checkbox' : 'square-outline'}
-                size={24}
-                color={excluded ? colors.accent : colors.textMuted}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={screen.excludeTitle}>Exclude from shuffle</Text>
-                <Text style={screen.excludeHelp}>
-                  Songs from releases shared with another artist you follow can still be picked.
-                </Text>
-              </View>
-            </Pressable>
+            <View style={screen.header}>
+              <Pressable
+                onPress={toggleExcluded}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: excluded }}
+                style={({ pressed }) => [screen.exclude, pressed && screen.excludePressed]}
+              >
+                <Ionicons
+                  name={excluded ? 'checkbox' : 'square-outline'}
+                  size={24}
+                  color={excluded ? colors.accent : colors.textMuted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={screen.excludeTitle}>Exclude from shuffle</Text>
+                  <Text style={screen.excludeHelp}>
+                    Songs from releases shared with another artist you follow can still be picked.
+                  </Text>
+                </View>
+              </Pressable>
+              {hasSongs && (
+                <Pressable
+                  onPress={shuffleArtist}
+                  disabled={shuffling}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Shuffle songs by ${name}`}
+                  style={({ pressed }) => [screen.shuffle, pressed && screen.shufflePressed]}
+                >
+                  {shuffling ? (
+                    <ActivityIndicator color={colors.accentText} />
+                  ) : (
+                    <Ionicons name="shuffle" size={28} color={colors.accentText} />
+                  )}
+                </Pressable>
+              )}
+            </View>
           )
         }
         ListEmptyComponent={albums ? <EmptyState title="No releases stored for this artist" /> : undefined}
@@ -110,17 +155,26 @@ export default function ArtistDetailScreen() {
 
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 16 },
   exclude: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginHorizontal: 16,
-    marginTop: 16,
     padding: 12,
     borderRadius: 8,
     backgroundColor: colors.surface,
   },
   excludePressed: { backgroundColor: colors.surfaceRaised },
+  shuffle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+  },
+  shufflePressed: { opacity: 0.8 },
   excludeTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
   excludeHelp: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   albumHeader: {

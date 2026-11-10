@@ -42,6 +42,8 @@ export default function TabLayout() {
         name="artists"
         options={{
           title: 'Artists',
+          // Leaving the tab closes an open artist page, so coming back shows the artist list.
+          popToTopOnBlur: true,
           tabBarIcon: ({ color, size }) => <Ionicons name="people" color={color as string} size={size} />,
         }}
       />
