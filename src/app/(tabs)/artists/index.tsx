@@ -5,7 +5,7 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import { getArtists, type ArtistRow } from '@/db/queries';
-import { colors } from '@/theme';
+import { colors, countLabel } from '@/theme';
 
 export default function ArtistsScreen() {
   const db = useSQLiteContext();
@@ -43,7 +43,7 @@ export default function ArtistsScreen() {
       <TextInput
         value={filter}
         onChangeText={setFilter}
-        placeholder={`Search ${artists.length} artists`}
+        placeholder={`Search ${countLabel(artists.length, 'artist')}`}
         placeholderTextColor={colors.textMuted}
         style={screen.search}
         autoCorrect={false}
@@ -64,7 +64,7 @@ export default function ArtistsScreen() {
                   {item.name}
                 </Text>
                 <Text style={screen.meta}>
-                  {item.album_count} releases · {item.track_count} songs
+                  {countLabel(item.album_count, 'release')} · {countLabel(item.track_count, 'song')}
                   {item.excluded ? ' · Excluded from shuffle' : ''}
                 </Text>
               </View>

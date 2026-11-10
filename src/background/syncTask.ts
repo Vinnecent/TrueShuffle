@@ -13,7 +13,7 @@ import {
   SYNC_STARTED_KEY,
   syncLibrary,
 } from '@/spotify/sync';
-import { formatDateTime } from '@/theme';
+import { countLabel, formatDateTime } from '@/theme';
 
 /**
  * Background sync: Android (WorkManager) runs this every now and then, even when the app is closed.
@@ -52,7 +52,7 @@ async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
     const result = await syncLibrary(db, undefined, { deadline: Date.now() + RUN_BUDGET_MS });
     const stats = await getLibraryStats(db);
     return result.completed
-      ? `Sync complete: ${stats.tracks.toLocaleString()} songs.`
+      ? `Sync complete: ${countLabel(stats.tracks, 'song')}.`
       : `Synced for a while (${stats.scannedArtists} of ${stats.artists} artists scanned). Continues next run.`;
   } catch (e) {
     if (e instanceof RateLimitError) {

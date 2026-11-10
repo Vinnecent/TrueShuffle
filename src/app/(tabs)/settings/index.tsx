@@ -44,7 +44,7 @@ import {
   syncLibrary,
   type SyncProgress,
 } from '@/spotify/sync';
-import { colors, formatDateTime } from '@/theme';
+import { colors, countLabel, formatDateTime } from '@/theme';
 
 const SPOTIFY_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
 
@@ -123,7 +123,7 @@ export default function SettingsScreen() {
       }
       Alert.alert(
         'Sync complete',
-        `${result.artists} artists · ${result.albums} releases · ${result.tracks.toLocaleString()} songs`,
+        `${countLabel(result.artists, 'artist')} · ${countLabel(result.albums, 'release')} · ${countLabel(result.tracks, 'song')}`,
       );
     } catch (e) {
       const resumeHint =
@@ -234,7 +234,7 @@ export default function SettingsScreen() {
         </Text>
         {stats && (
           <Text style={screen.stats}>
-            {stats.artists} artists · {stats.albums} releases · {stats.tracks.toLocaleString()} songs
+            {countLabel(stats.artists, 'artist')} · {countLabel(stats.albums, 'release')} · {countLabel(stats.tracks, 'song')}
             {'\n'}Artists scanned: {stats.scannedArtists} of {stats.artists}
             {'\n'}Last sync: {stats.lastSync ? formatDateTime(stats.lastSync) : 'never'}
             {syncInterrupted && !syncing ? '\nLast sync was interrupted. Syncing again continues it.' : ''}
@@ -308,7 +308,7 @@ function SyncStatus({ progress }: { progress: SyncProgress }) {
       <Text style={screen.statusText}>
         {progress.phase}
         {progress.total ? ` ${progress.done}/${progress.total}` : '…'}
-        {progress.tracks !== undefined ? ` · ${progress.tracks.toLocaleString()} songs` : ''}
+        {progress.tracks !== undefined ? ` · ${countLabel(progress.tracks, 'song')}` : ''}
       </Text>
       {progress.total > 0 && (
         <View style={screen.progressTrack}>

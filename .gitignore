@@ -18,6 +18,9 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# Built Android apps (share them through GitHub Releases, not the repository)
+*.apk
+
 # Metro
 .metro-health-check*
 

@@ -49,3 +49,8 @@ export function formatDateTime(value: Date | string): string {
   const date = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/** A count with the right word form, e.g. "1 song", "2 songs", "1,204 releases". */
+export function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}

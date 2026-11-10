@@ -6,7 +6,7 @@ import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork, EmptyState } from '@/components/ui';
 import { getArtist, getArtistDiscography, setArtistExcluded, type AlbumWithTracks } from '@/db/queries';
-import { colors, formatDuration } from '@/theme';
+import { colors, countLabel, formatDuration } from '@/theme';
 
 const TYPE_LABEL: Record<string, string> = { album: 'Album', single: 'Single / EP', compilation: 'Compilation' };
 
@@ -84,7 +84,7 @@ export default function ArtistDetailScreen() {
               </Text>
               <Text style={screen.albumMeta}>
                 {TYPE_LABEL[album.album_type] ?? album.album_type} · {album.release_date?.slice(0, 4) ?? '—'} ·{' '}
-                {album.tracks.length} songs
+                {countLabel(album.tracks.length, 'song')}
               </Text>
             </View>
           </View>

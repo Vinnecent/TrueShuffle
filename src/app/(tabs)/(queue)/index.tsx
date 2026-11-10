@@ -101,7 +101,7 @@ export default function QueueScreen() {
       const playlistId = await sendToSpotifyPlaylist(queue.map((q) => q.uri));
       Alert.alert(
         'Playlist updated',
-        `Your "TrueShuffle" playlist in Spotify now holds these ${queue.length} songs. ` +
+        `Your "TrueShuffle" playlist in Spotify now holds ${queue.length === 1 ? 'this song' : `these ${queue.length} songs`}. ` +
           'Play it with Spotify’s shuffle turned off to keep this order.',
         [
           { text: 'Done', style: 'cancel' },
