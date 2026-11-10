@@ -4,6 +4,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { activeFilterCount, FilterSheet } from '@/components/FilterSheet';
 import { NowPlaying } from '@/components/NowPlaying';
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import {
@@ -28,14 +29,6 @@ import {
 } from '@/spotify/playback';
 import { colors, formatDuration } from '@/theme';
 
-const FILTERS: { key: keyof ShuffleFilters; label: string }[] = [
-  { key: 'excludeAcoustic', label: 'Exclude acoustic' },
-  { key: 'excludeRemix', label: 'Exclude remix' },
-  { key: 'excludeLive', label: 'Exclude live' },
-  { key: 'excludeIntro', label: 'Exclude intro songs' },
-  { key: 'excludeInstrumental', label: 'Exclude instrumental' },
-];
-
 export default function QueueScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -46,6 +39,8 @@ export default function QueueScreen() {
   const [filters, setFilters] = useState<ShuffleFilters>(DEFAULT_SHUFFLE_FILTERS);
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilters = activeFilterCount(filters);
   const queueUris = useMemo(() => queue.map((q) => q.uri), [queue]);
 
   const load = useCallback(async () => {
@@ -155,30 +150,25 @@ export default function QueueScreen() {
     <View style={screen.container}>
       <View style={screen.header}>
         <NowPlaying queueUris={queueUris} />
-        <Text style={screen.summary}>
-          {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
-        </Text>
-        <View style={screen.filters}>
-          {FILTERS.map(({ key, label }) => {
-            const on = filters[key];
-            return (
-              <Pressable
-                key={key}
-                onPress={() => toggleFilter(key)}
-                disabled={shuffling}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: on }}
-                style={({ pressed }) => [screen.filter, on && screen.filterOn, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons
-                  name={on ? 'checkbox' : 'square-outline'}
-                  size={18}
-                  color={on ? colors.accent : colors.textMuted}
-                />
-                <Text style={[screen.filterText, on && { color: colors.text }]}>{label}</Text>
-              </Pressable>
-            );
-          })}
+        <View style={screen.summaryRow}>
+          <Text style={screen.summary}>
+            {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
+          </Text>
+          <Pressable
+            onPress={() => setFiltersOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Filters, ${activeFilters} on`}
+            style={({ pressed }) => [
+              screen.filterButton,
+              activeFilters > 0 && screen.filterButtonOn,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons name="options-outline" size={16} color={activeFilters > 0 ? colors.accent : colors.textMuted} />
+            <Text style={[screen.filterButtonText, activeFilters > 0 && { color: colors.text }]}>
+              Filters{activeFilters > 0 ? ` · ${activeFilters}` : ''}
+            </Text>
+          </Pressable>
         </View>
         <View style={screen.actions}>
           <View style={{ flex: 1 }}>
@@ -209,8 +199,8 @@ export default function QueueScreen() {
           shuffleTracks === 0 ? (
             <EmptyState title="Nothing left to shuffle">
               <Text style={ui.muted}>
-                Every song is excluded by an artist exclusion or a filter. Turn a filter off, or include an artist
-                again on the Artists tab.
+                Every song is excluded by an artist exclusion or a filter. Turn a filter off, or include an artist again
+                on the Artists tab.
               </Text>
             </EmptyState>
           ) : (
@@ -235,6 +225,15 @@ export default function QueueScreen() {
           </Pressable>
         )}
       />
+
+      <FilterSheet
+        visible={filtersOpen}
+        filters={filters}
+        shuffleTracks={shuffleTracks}
+        disabled={shuffling}
+        onToggle={toggleFilter}
+        onClose={() => setFiltersOpen(false)}
+      />
     </View>
   );
 }
@@ -242,22 +241,22 @@ export default function QueueScreen() {
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: { padding: 16, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  summary: { color: colors.textMuted, fontSize: 13 },
+  summary: { flex: 1, color: colors.textMuted, fontSize: 13 },
   actions: { flexDirection: 'row', gap: 12 },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  filter: {
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  filterOn: { borderColor: colors.accent },
-  filterText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  filterButtonOn: { borderColor: colors.accent },
+  filterButtonText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
   index: { color: colors.textMuted, width: 22, textAlign: 'right', fontVariant: ['tabular-nums'] },
   rowText: { flex: 1 },
