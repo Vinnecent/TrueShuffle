@@ -244,6 +244,21 @@ export function getQueue(db: SQLiteDatabase): Promise<QueueRow[]> {
   `);
 }
 
+/** A stored song looked up by its Spotify URI ("spotify:track:…"), with its album cover. */
+export function getTrackByUri(
+  db: SQLiteDatabase,
+  uri: string,
+): Promise<{ duration_ms: number; image_url: string | null } | null> {
+  return db.getFirstAsync(
+    `SELECT t.duration_ms, al.image_url
+     FROM tracks t
+     JOIN albums al ON al.id = t.album_id
+     WHERE t.uri = ?
+     LIMIT 1`,
+    uri,
+  );
+}
+
 export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats> {
   const row = await db.getFirstAsync<{ artists: number; scanned: number; albums: number; tracks: number }>(`
     SELECT (SELECT COUNT(*) FROM artists) AS artists,

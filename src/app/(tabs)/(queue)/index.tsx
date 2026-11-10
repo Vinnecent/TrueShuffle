@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { NowPlaying } from '@/components/NowPlaying';
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import {
   countShuffleTracks,
@@ -45,6 +46,7 @@ export default function QueueScreen() {
   const [filters, setFilters] = useState<ShuffleFilters>(DEFAULT_SHUFFLE_FILTERS);
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
+  const queueUris = useMemo(() => queue.map((q) => q.uri), [queue]);
 
   const load = useCallback(async () => {
     const savedFilters = await getShuffleFilters(db);
@@ -98,7 +100,7 @@ export default function QueueScreen() {
     try {
       // Asks for a (re-)login if the stored one predates the playlist permissions.
       await ensureLoggedInWithScopes();
-      const playlistId = await sendToSpotifyPlaylist(queue.map((q) => q.uri));
+      const playlistId = await sendToSpotifyPlaylist(queueUris);
       Alert.alert(
         'Playlist updated',
         `Your "TrueShuffle" playlist in Spotify now holds ${queue.length === 1 ? 'this song' : `these ${queue.length} songs`}. ` +
@@ -152,6 +154,7 @@ export default function QueueScreen() {
   return (
     <View style={screen.container}>
       <View style={screen.header}>
+        <NowPlaying queueUris={queueUris} />
         <Text style={screen.summary}>
           {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
         </Text>
