@@ -24,6 +24,14 @@ import {
   setBackgroundSyncEnabled,
   type BackgroundSyncStatus,
 } from '@/background/syncTask';
+import {
+  importLibrary,
+  InvalidBackupError,
+  pickBackup,
+  saveLibraryToFolder,
+  shareLibrary,
+  summarizeBackup,
+} from '@/backup/backup';
 import { Button } from '@/components/ui';
 import { clearLibrary, getLibraryStats, type LibraryStats } from '@/db/queries';
 import { RateLimitError } from '@/spotify/api';
@@ -56,6 +64,7 @@ export default function SettingsScreen() {
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [backingUp, setBackingUp] = useState<'export' | 'import' | null>(null);
   const [rateLimitedUntil, setRateLimitedUntil] = useState<Date | null>(null);
   const [background, setBackground] = useState<{
     available: boolean;
@@ -177,6 +186,68 @@ export default function SettingsScreen() {
     } finally {
       setClearing(false);
       await refresh();
+    }
+  };
+
+  const runExport = async (how: 'save' | 'share') => {
+    setBackingUp('export');
+    try {
+      if (how === 'share') {
+        await shareLibrary(db);
+      } else {
+        const name = await saveLibraryToFolder(db);
+        if (name) Alert.alert('Backup saved', `Saved as “${name}” in the folder you chose.`);
+      }
+    } catch (e) {
+      Alert.alert('Could not export the library', (e as Error).message);
+    } finally {
+      setBackingUp(null);
+    }
+  };
+
+  const exportBackup = () =>
+    Alert.alert('Export library', 'Save the backup file on this phone, or share it to another app or a cloud drive.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Share…', onPress: () => runExport('share') },
+      { text: 'Save to this phone', onPress: () => runExport('save') },
+    ]);
+
+  const importBackup = async () => {
+    setBackingUp('import');
+    try {
+      const backup = await pickBackup();
+      if (!backup) return;
+      const summary = summarizeBackup(backup);
+      const replace = async () => {
+        setBackingUp('import');
+        try {
+          await importLibrary(db, backup);
+          Alert.alert('Library imported', `${countLabel(summary.artists, 'artist')} · ${countLabel(summary.tracks, 'song')}`);
+        } catch (e) {
+          Alert.alert('Could not import the backup', `${(e as Error).message}\n\nYour library was not changed.`);
+        } finally {
+          setBackingUp(null);
+          await refresh();
+        }
+      };
+      Alert.alert(
+        'Replace your library?',
+        `Backup from ${formatRelativeDateTime(summary.exportedAt)}: ${countLabel(summary.artists, 'artist')}, ` +
+          `${countLabel(summary.albums, 'release')}, ${countLabel(summary.tracks, 'song')}.\n\n` +
+          'Your current library, queue and shuffle settings on this phone are replaced. ' +
+          'Your Spotify credentials and login stay as they are.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Replace library', style: 'destructive', onPress: replace },
+        ],
+      );
+    } catch (e) {
+      Alert.alert(
+        e instanceof InvalidBackupError ? 'Not a TrueShuffle backup' : 'Could not read the file',
+        (e as Error).message,
+      );
+    } finally {
+      setBackingUp(null);
     }
   };
 
@@ -306,6 +377,33 @@ export default function SettingsScreen() {
             )}
           </Pressable>
         )}
+
+        <View style={screen.divider} />
+        <Text style={screen.sectionTitle}>Backup</Text>
+        <Text style={screen.help}>
+          Move your synced library to another phone: export it to a file, then import that file there. Your Spotify
+          credentials and login are not included.
+        </Text>
+        <View style={screen.buttonRow}>
+          <View style={{ flex: 1 }}>
+            <Button
+              title="Export"
+              variant="secondary"
+              onPress={exportBackup}
+              loading={backingUp === 'export'}
+              disabled={!hasLibrary || syncing || clearing || backingUp !== null}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button
+              title="Import"
+              variant="secondary"
+              onPress={importBackup}
+              loading={backingUp === 'import'}
+              disabled={syncing || clearing || backingUp !== null}
+            />
+          </View>
+        </View>
 
         {(connected || hasLibrary) && (
           <>
@@ -486,6 +584,7 @@ const screen = StyleSheet.create({
   mono: { color: colors.accent, fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), fontSize: 13 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 4 },
   tiles: { flexDirection: 'row', gap: 8 },
+  buttonRow: { flexDirection: 'row', gap: 12 },
   tile: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 8, backgroundColor: colors.surface },
   tileValue: { color: colors.text, fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'] },
   tileLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },

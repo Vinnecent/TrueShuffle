@@ -29,6 +29,16 @@ export function describePlaybackError(e: unknown): string {
   return (e as Error)?.message ?? String(e);
 }
 
+/** The stored TrueShuffle playlist ID (for backups), or null if none was created on this phone yet. */
+export function getStoredPlaylistId(): Promise<string | null> {
+  return SecureStore.getItemAsync(PLAYLIST_ID_KEY);
+}
+
+/** Restores the playlist ID from a backup, unless this phone already has its own. */
+export async function restorePlaylistId(id: string): Promise<void> {
+  if (!(await SecureStore.getItemAsync(PLAYLIST_ID_KEY))) await SecureStore.setItemAsync(PLAYLIST_ID_KEY, id);
+}
+
 /**
  * Returns the ID of the user's TrueShuffle playlist, creating it if it does not exist yet or the user
  * removed it from their library (Spotify never really deletes playlists, it only unfollows them).
