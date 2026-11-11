@@ -39,12 +39,11 @@ import {
 } from '@/spotify/auth';
 import {
   getRateLimitedUntil,
-  MANUAL_RESCAN_AFTER_MS,
   SyncInProgressError,
   syncLibrary,
   type SyncProgress,
 } from '@/spotify/sync';
-import { colors, countLabel, formatDateTime } from '@/theme';
+import { colors, countLabel, formatRelativeDateTime } from '@/theme';
 
 const SPOTIFY_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
 
@@ -82,6 +81,13 @@ export default function SettingsScreen() {
     }, [refresh]),
   );
 
+  // Re-enable "Sync" as soon as Spotify's wait is over, without having to leave the screen.
+  useEffect(() => {
+    if (!rateLimitedUntil) return;
+    const timer = setTimeout(() => setRateLimitedUntil(null), Math.max(0, rateLimitedUntil.getTime() - Date.now()));
+    return () => clearTimeout(timer);
+  }, [rateLimitedUntil]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -99,6 +105,7 @@ export default function SettingsScreen() {
   const dirty = clientId.trim() !== savedCreds.clientId || clientSecret.trim() !== savedCreds.clientSecret;
   const hasCreds = !!savedCreds.clientId && !!savedCreds.clientSecret;
   const syncing = progress !== null;
+  const hasLibrary = !!stats && (stats.artists > 0 || stats.lastSync !== null);
 
   const save = async () => {
     await saveCredentials({ clientId, clientSecret });
@@ -122,7 +129,7 @@ export default function SettingsScreen() {
       Alert.alert(
         result.scanned === 0 ? 'Library is up to date' : 'Sync complete',
         result.scanned === 0
-          ? `Every artist was scanned within the last ${MANUAL_RESCAN_AFTER_MS / 60_000} minutes.`
+          ? 'Every included artist was updated within the last hour.'
           : `Updated ${countLabel(result.scanned, 'artist')}.\n\n` +
               `${countLabel(result.artists, 'artist')} · ${countLabel(result.albums, 'release')} · ${countLabel(result.tracks, 'song')}`,
       );
@@ -231,27 +238,31 @@ export default function SettingsScreen() {
 
         <Text style={screen.sectionTitle}>Library</Text>
         <Text style={screen.help}>
-          {connected ? 'Connected to Spotify.' : 'Not connected — syncing will ask you to log in to Spotify.'}
+          {connected ? 'Connected' : 'Not connected, syncing will ask you to log in'}
+          {stats ? ` · Last sync ${stats.lastSync ? formatRelativeDateTime(stats.lastSync) : 'never'}` : ''}
         </Text>
+
         {stats && (
-          <Text style={screen.stats}>
-            {countLabel(stats.artists, 'artist')} · {countLabel(stats.albums, 'release')} · {countLabel(stats.tracks, 'song')}
-            {'\n'}Artists up to date: {stats.freshArtists} of {stats.artists - stats.excludedArtists}
-            {stats.excludedArtists > 0
-              ? `\n${countLabel(stats.excludedArtists, 'excluded artist')} ${stats.excludedArtists === 1 ? 'is' : 'are'} not synced.`
-              : ''}
-            {'\n'}Last sync: {stats.lastSync ? formatDateTime(stats.lastSync) : 'never'}
-            {rateLimitedUntil && !syncing
-              ? `\nSpotify asks to wait until ${formatDateTime(rateLimitedUntil)} before syncing again.`
-              : ''}
-          </Text>
+          <>
+            <View style={screen.tiles}>
+              <StatTile value={stats.artists} label="artists" />
+              <StatTile value={stats.albums} label="releases" />
+              <StatTile value={stats.tracks} label="songs" />
+            </View>
+
+            <FreshnessBar stats={stats} />
+          </>
         )}
 
         <Button
-          title="Sync library from Spotify"
+          title={
+            rateLimitedUntil && !syncing
+              ? `Sync available ${formatRelativeDateTime(rateLimitedUntil)}`
+              : 'Sync library from Spotify'
+          }
           onPress={sync}
           loading={syncing}
-          disabled={!hasCreds || dirty || syncing || clearing}
+          disabled={!hasCreds || dirty || syncing || clearing || rateLimitedUntil !== null}
         />
         {progress && <SyncStatus progress={progress} />}
         {!hasCreds && <Text style={screen.help}>Save your Client ID and Client Secret first.</Text>}
@@ -274,33 +285,95 @@ export default function SettingsScreen() {
               <Text style={screen.checkTitle}>Background sync</Text>
               <Text style={screen.help}>
                 {background.available
-                  ? 'Continues the sync every few hours, even when the app is closed. Android decides ' +
-                    'when it runs, usually while the phone is idle or charging.'
+                  ? 'Updates your library about twice a day'
                   : 'Background tasks are not available on this device.'}
               </Text>
               {background.status && (
                 <Text style={screen.help}>
-                  Last run {formatDateTime(background.status.at)}: {background.status.message}
+                  Last run {formatRelativeDateTime(background.status.at)} · {background.status.message}
                 </Text>
               )}
             </View>
+            {background.available && (
+              <Pressable
+                onPress={explainBackgroundSync}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="About background sync"
+              >
+                <Ionicons name="information-circle-outline" size={22} color={colors.textMuted} />
+              </Pressable>
+            )}
           </Pressable>
         )}
 
-        {connected && (
-          <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
-        )}
-        {stats && (stats.artists > 0 || stats.lastSync !== null) && (
-          <Button
-            title="Clear library"
-            variant="danger"
-            onPress={confirmClearLibrary}
-            loading={clearing}
-            disabled={syncing || clearing}
-          />
+        {(connected || hasLibrary) && (
+          <>
+            <View style={screen.divider} />
+            <Text style={screen.sectionTitle}>Reset</Text>
+            <Text style={screen.help}>
+              Log out of Spotify, or delete everything synced to this phone. Your credentials and filters are kept.
+            </Text>
+            {connected && (
+              <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
+            )}
+            {hasLibrary && (
+              <Button
+                title="Clear library"
+                variant="danger"
+                onPress={confirmClearLibrary}
+                loading={clearing}
+                disabled={syncing || clearing}
+              />
+            )}
+          </>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+const explainBackgroundSync = () =>
+  Alert.alert(
+    'Background sync',
+    'While the app is closed, Android runs the sync about twice a day, usually while the phone is idle or ' +
+      'charging; it decides the exact time. Each run updates the artists not checked for a week, oldest first ' +
+      '(artists never scanned go first), for a few minutes. Runs with nothing to do, or during a wait Spotify ' +
+      'asked for, end without contacting Spotify.',
+  );
+
+function StatTile({ value, label }: { value: number; label: string }) {
+  return (
+    <View style={screen.tile}>
+      <Text style={screen.tileValue} numberOfLines={1} adjustsFontSizeToFit>
+        {value.toLocaleString()}
+      </Text>
+      <Text style={screen.tileLabel}>{label}</Text>
+    </View>
+  );
+}
+
+/** "Up to date" bar: included artists scanned within the last week, plus what is still missing. */
+function FreshnessBar({ stats }: { stats: LibraryStats }) {
+  const included = stats.artists - stats.excludedArtists;
+  const fraction = included > 0 ? stats.freshArtists / included : 0;
+  const details = [
+    stats.unscannedArtists > 0 ? `${stats.unscannedArtists} not scanned yet` : null,
+    stats.excludedArtists > 0 ? `${stats.excludedArtists} excluded` : null,
+  ].filter(Boolean);
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={screen.freshRow}>
+        <Text style={screen.freshLabel}>Up to date</Text>
+        <View style={[screen.progressTrack, { flex: 1 }]}>
+          <View style={[screen.progressFill, { width: `${Math.round(fraction * 100)}%` }]} />
+        </View>
+        <Text style={screen.freshCount}>
+          {stats.freshArtists.toLocaleString()} / {included.toLocaleString()}
+        </Text>
+      </View>
+      {details.length > 0 && <Text style={screen.help}>{details.join(' · ')}</Text>}
+    </View>
   );
 }
 
@@ -411,8 +484,14 @@ const screen = StyleSheet.create({
   },
   checkTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
   mono: { color: colors.accent, fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), fontSize: 13 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 12 },
-  stats: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 4 },
+  tiles: { flexDirection: 'row', gap: 8 },
+  tile: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 8, backgroundColor: colors.surface },
+  tileValue: { color: colors.text, fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  tileLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  freshRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  freshLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  freshCount: { color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
   status: { gap: 8 },
   statusText: { color: colors.text, fontSize: 14, textAlign: 'center', fontVariant: ['tabular-nums'] },
   statusNote: { color: colors.textMuted, fontSize: 13, textAlign: 'center' },

@@ -55,6 +55,8 @@ export type LibraryStats = {
   excludedArtists: number;
   /** Included artists scanned within ARTIST_REFRESH_AFTER_MS. */
   freshArtists: number;
+  /** Included artists whose releases were never fetched. */
+  unscannedArtists: number;
   albums: number;
   tracks: number;
   lastSync: string | null;
@@ -271,6 +273,7 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
     artists: number;
     excluded: number;
     fresh: number;
+    unscanned: number;
     albums: number;
     tracks: number;
   }>(
@@ -278,6 +281,8 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
             (SELECT COUNT(*) FROM excluded_artists) AS excluded,
             (SELECT COUNT(*) FROM artists
               WHERE id NOT IN (SELECT artist_id FROM excluded_artists) AND albums_synced_at >= ?) AS fresh,
+            (SELECT COUNT(*) FROM artists
+              WHERE id NOT IN (SELECT artist_id FROM excluded_artists) AND albums_synced_at IS NULL) AS unscanned,
             (SELECT COUNT(*) FROM albums)  AS albums,
             (SELECT COUNT(*) FROM tracks)  AS tracks`,
     freshSince,
@@ -287,6 +292,7 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
     artists: row?.artists ?? 0,
     excludedArtists: row?.excluded ?? 0,
     freshArtists: row?.fresh ?? 0,
+    unscannedArtists: row?.unscanned ?? 0,
     albums: row?.albums ?? 0,
     tracks: row?.tracks ?? 0,
     lastSync,

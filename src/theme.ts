@@ -50,6 +50,23 @@ export function formatDateTime(value: Date | string): string {
   return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * Short local date and time relative to now: "today 14:57", "yesterday 08:12", "tomorrow 09:00",
+ * "3 days ago", and "dd/mm/yyyy HH:MM" (see formatDateTime) for anything further away.
+ */
+export function formatRelativeDateTime(value: Date | string): string {
+  const d = typeof value === 'string' ? new Date(value) : value;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000);
+  if (days === 0) return `today ${time}`;
+  if (days === 1) return `yesterday ${time}`;
+  if (days === -1) return `tomorrow ${time}`;
+  if (days > 1 && days < 7) return `${days} days ago`;
+  return formatDateTime(d);
+}
+
 /** A count with the right word form, e.g. "1 song", "2 songs", "1,204 releases". */
 export function countLabel(count: number, singular: string, plural = `${singular}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;

@@ -7,7 +7,7 @@ import { DATABASE_NAME, initDatabase } from '@/db/schema';
 import { RateLimitError } from '@/spotify/api';
 import { isLoggedIn, NotAuthenticatedError } from '@/spotify/auth';
 import { getRateLimitedUntil, isSyncRunning, syncLibrary } from '@/spotify/sync';
-import { countLabel, formatDateTime } from '@/theme';
+import { countLabel } from '@/theme';
 
 /**
  * Background sync: Android (WorkManager) runs this every now and then, even when the app is closed.
@@ -31,7 +31,8 @@ async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
   if (isSyncRunning()) return 'Skipped: a sync was already running in the app.';
 
   const blockedUntil = await getRateLimitedUntil(db);
-  if (blockedUntil) return `Waiting for Spotify’s limit to end (${formatDateTime(blockedUntil)}).`;
+  // The Sync button in Settings shows when the wait ends, so the stored message needs no date.
+  if (blockedUntil) return 'Waiting for Spotify’s limit to end.';
 
   if (!(await isLoggedIn())) return 'Not connected to Spotify. Sync once in the app to log in.';
 
@@ -51,10 +52,7 @@ async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
       ? `Updated ${countLabel(result.scanned, 'artist')}. Library is up to date.`
       : `Updated ${countLabel(result.scanned, 'artist')}; ${result.remaining} more next run.`;
   } catch (e) {
-    if (e instanceof RateLimitError) {
-      const until = await getRateLimitedUntil(db);
-      return `Spotify’s limit reached. Continues after ${until ? formatDateTime(until) : 'the wait'}.`;
-    }
+    if (e instanceof RateLimitError) return 'Spotify’s limit reached. Continues after the wait.';
     if (e instanceof NotAuthenticatedError) return 'Spotify login expired. Sync once in the app to log in again.';
     return `Failed: ${(e as Error).message}`;
   }

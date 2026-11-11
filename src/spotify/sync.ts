@@ -47,7 +47,7 @@ export type SyncOptions = {
 };
 
 /**
- * "Sync now" in Settings skips artists scanned within this time, so syncing again after an
+ * "Sync now" in Settings skips artists scanned within this time (its "up to date" alert says "the last hour"), so syncing again after an
  * interruption (rate limit, network loss) continues with the rest instead of starting over.
  */
 export const MANUAL_RESCAN_AFTER_MS = 60 * 60_000;
