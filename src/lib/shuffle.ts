@@ -36,3 +36,58 @@ export function pickRandomUnique<T>(items: readonly T[], count: number, keyOf: (
   }
   return result;
 }
+
+/** Uniform random number in [0, 1) from a cryptographically secure source (32 bits of randomness). */
+function secureRandomFraction(): number {
+  return secureRandomInt(UINT32_RANGE) / UINT32_RANGE;
+}
+
+/**
+ * Picks up to `count` items in two steps: first a group, chosen with probability proportional to its
+ * `weight`, then an item of that group uniformly at random (without replacement). A group that runs
+ * out of items leaves the draw. Items whose `keyOf` was already picked are skipped, so an item that is
+ * in several groups (e.g. a song on a release shared by two artists) is picked at most once.
+ * Does not mutate `groups`.
+ */
+export function pickRandomFromGroups<T>(
+  groups: readonly { weight: number; items: readonly T[] }[],
+  count: number,
+  keyOf: (item: T) => string,
+): T[] {
+  const pools = groups
+    .filter((g) => g.weight > 0 && g.items.length > 0)
+    .map((g) => ({
+      weight: g.weight,
+      items: g.items.slice(),
+    }));
+  let totalWeight = pools.reduce((sum, p) => sum + p.weight, 0);
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  while (result.length < count && pools.length > 0) {
+    // Step 1: a group, weighted.
+    let r = secureRandomFraction() * totalWeight;
+    let g = 0;
+    while (g < pools.length - 1 && r >= pools[g].weight) {
+      r -= pools[g].weight;
+      g++;
+    }
+    const pool = pools[g];
+
+    // Step 2: an item of that group, uniformly; swap-remove it so it cannot come up again.
+    const i = secureRandomInt(pool.items.length);
+    const item = pool.items[i];
+    pool.items[i] = pool.items[pool.items.length - 1];
+    pool.items.pop();
+    if (pool.items.length === 0) {
+      totalWeight -= pool.weight;
+      pools.splice(g, 1);
+    }
+
+    const key = keyOf(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}

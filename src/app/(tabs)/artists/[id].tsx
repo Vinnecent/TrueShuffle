@@ -56,7 +56,7 @@ export default function ArtistDetailScreen() {
     setShuffling(true);
     try {
       const filters = await getShuffleFilters(db);
-      const count = await generateShuffledQueue(db, filters, id);
+      const count = await generateShuffledQueue(db, filters, { artistId: id });
       if (count === 0) {
         Alert.alert('Nothing to shuffle', 'Your filters on the Queue tab remove every song by this artist.');
         return;

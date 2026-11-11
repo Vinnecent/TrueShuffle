@@ -9,14 +9,18 @@ import { NowPlaying } from '@/components/NowPlaying';
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import {
   countShuffleTracks,
+  DEFAULT_ARTIST_WEIGHTING,
   DEFAULT_SHUFFLE_FILTERS,
   generateShuffledQueue,
   getLibraryStats,
   getQueue,
+  getArtistWeighting,
   getShuffleFilters,
   MAX_QUEUE_SIZE,
   removeFromQueue,
+  setArtistWeighting,
   setShuffleFilter,
+  type ArtistWeighting,
   type QueueRow,
   type ShuffleFilters,
 } from '@/db/queries';
@@ -38,10 +42,11 @@ export default function QueueScreen() {
   /** Songs the shuffle can draw from (excluded artists and filters applied). */
   const [shuffleTracks, setShuffleTracks] = useState(0);
   const [filters, setFilters] = useState<ShuffleFilters>(DEFAULT_SHUFFLE_FILTERS);
+  const [weighting, setWeighting] = useState<ArtistWeighting>(DEFAULT_ARTIST_WEIGHTING);
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const activeFilters = activeFilterCount(filters);
+  const activeFilters = activeFilterCount(filters, weighting);
   const queueUris = useMemo(() => queue.map((q) => q.uri), [queue]);
   // What Spotify plays, shared by the Now playing card and the list (-1 if it is not in the queue).
   const nowPlaying = useSpotifyNowPlaying();
@@ -49,7 +54,8 @@ export default function QueueScreen() {
   const isPlaying = useIsPlaying(nowPlaying, playingIndex >= 0 ? queue[playingIndex].duration_ms : null);
 
   const load = useCallback(async () => {
-    const savedFilters = await getShuffleFilters(db);
+    const [savedFilters, savedWeighting] = await Promise.all([getShuffleFilters(db), getArtistWeighting(db)]);
+    setWeighting(savedWeighting);
     const [rows, stats, eligible] = await Promise.all([
       getQueue(db),
       getLibraryStats(db),
@@ -70,11 +76,16 @@ export default function QueueScreen() {
   const shuffle = async () => {
     setShuffling(true);
     try {
-      await generateShuffledQueue(db, filters);
+      await generateShuffledQueue(db, filters, { weighting });
       await load();
     } finally {
       setShuffling(false);
     }
+  };
+
+  const changeWeighting = async (next: ArtistWeighting) => {
+    setWeighting(next);
+    await setArtistWeighting(db, next);
   };
 
   const toggleFilter = async (key: keyof ShuffleFilters) => {
@@ -255,7 +266,9 @@ export default function QueueScreen() {
         filters={filters}
         shuffleTracks={shuffleTracks}
         disabled={shuffling}
+        weighting={weighting}
         onToggle={toggleFilter}
+        onChangeWeighting={changeWeighting}
         onClose={() => setFiltersOpen(false)}
       />
     </View>

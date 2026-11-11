@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { pickRandomUnique } from '@/lib/shuffle';
+import { pickRandomFromGroups, pickRandomUnique } from '@/lib/shuffle';
 
 export const MAX_QUEUE_SIZE = 75;
 
@@ -173,6 +173,28 @@ export async function setShuffleFilter(db: SQLiteDatabase, filter: keyof Shuffle
   await setMeta(db, FILTER_KEYS[filter], enabled ? '1' : '0');
 }
 
+/**
+ * How the shuffle weighs artists against each other:
+ * - `song`: every song has the same chance, so artists with many songs come up more often;
+ * - `balanced`: an artist's chance grows with the square root of their song count;
+ * - `artist`: every artist has the same chance, whatever their song count.
+ */
+export type ArtistWeighting = 'song' | 'balanced' | 'artist';
+
+export const DEFAULT_ARTIST_WEIGHTING: ArtistWeighting = 'song';
+
+/** Stored with the filters (a `filter_` key), so Clear library keeps it. */
+const ARTIST_WEIGHTING_KEY = 'filter_artist_weighting';
+
+export async function getArtistWeighting(db: SQLiteDatabase): Promise<ArtistWeighting> {
+  const value = await getMeta(db, ARTIST_WEIGHTING_KEY);
+  return value === 'balanced' || value === 'artist' ? value : DEFAULT_ARTIST_WEIGHTING;
+}
+
+export async function setArtistWeighting(db: SQLiteDatabase, weighting: ArtistWeighting) {
+  await setMeta(db, ARTIST_WEIGHTING_KEY, weighting);
+}
+
 /** Whether a song passes the enabled filters. */
 function passesShuffleFilters(track: ShuffleCandidate, filters: ShuffleFilters): boolean {
   for (const key of Object.keys(FILTER_TESTS) as (keyof ShuffleFilters)[]) {
@@ -204,6 +226,32 @@ async function getShuffleCandidates(
       )
     : await db.getAllAsync<ShuffleCandidate>(`${select} WHERE ${SHUFFLE_TRACKS_WHERE}`);
   return rows.filter((t) => passesShuffleFilters(t, filters));
+}
+
+/**
+ * The shuffle candidates grouped by followed artist (excluded artists left out, filters applied).
+ * A song on a release shared by several included artists is in each of their groups.
+ */
+async function getShuffleCandidatesByArtist(
+  db: SQLiteDatabase,
+  filters: ShuffleFilters,
+): Promise<ShuffleCandidate[][]> {
+  const rows = await db.getAllAsync<ShuffleCandidate & { artist_id: string }>(
+    `SELECT t.id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+            al.total_tracks AS album_total_tracks, aa.artist_id
+     FROM tracks t
+     JOIN albums al ON al.id = t.album_id
+     JOIN artist_albums aa ON aa.album_id = t.album_id
+     WHERE aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)`,
+  );
+  const byArtist = new Map<string, ShuffleCandidate[]>();
+  for (const row of rows) {
+    if (!passesShuffleFilters(row, filters)) continue;
+    const list = byArtist.get(row.artist_id);
+    if (list) list.push(row);
+    else byArtist.set(row.artist_id, [row]);
+  }
+  return [...byArtist.values()];
 }
 
 /** Number of stored songs the shuffle can draw from (excluded artists and filters applied). */
@@ -301,22 +349,34 @@ export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats>
 
 // ---------------------------------------------------------------- queue writes
 
+/** Same title + artists counts as the same song (e.g. a single that is also on the album). */
+const songKey = (t: ShuffleCandidate) => `${t.name.trim().toLowerCase()}\u0000${t.artists.toLowerCase()}`;
+
 /**
- * Replaces the local queue with up to MAX_QUEUE_SIZE songs drawn uniformly at random
- * (without replacement, using a cryptographically secure RNG) from every stored track,
- * except songs that only belong to excluded artists or are removed by the title filters.
- * Songs with the same title + artists (e.g. a single that is also on the album) are only picked once.
- * With `artistId`, the songs are drawn only from that artist's releases.
+ * Replaces the local queue with up to MAX_QUEUE_SIZE songs drawn at random (cryptographically secure
+ * RNG, without replacement) from every stored song, except songs that only belong to excluded artists
+ * or are removed by the title filters. Songs with the same title + artists are only picked once.
+ *
+ * `weighting` decides how likely each song is (see ArtistWeighting): with `song` every song is equally
+ * likely; otherwise each pick first chooses an artist (equally, or by the square root of their song
+ * count) and then one of that artist's songs. With `artistId`, the songs are drawn only from that
+ * artist's releases and the weighting does not matter.
  */
 export async function generateShuffledQueue(
   db: SQLiteDatabase,
   filters: ShuffleFilters,
-  artistId?: string,
+  { artistId, weighting = DEFAULT_ARTIST_WEIGHTING }: { artistId?: string; weighting?: ArtistWeighting } = {},
 ): Promise<number> {
-  const all = await getShuffleCandidates(db, filters, artistId);
-  const picked = pickRandomUnique(all, MAX_QUEUE_SIZE, (t) =>
-    `${t.name.trim().toLowerCase()}\u0000${t.artists.toLowerCase()}`,
-  );
+  let picked: ShuffleCandidate[];
+  if (artistId || weighting === 'song') {
+    picked = pickRandomUnique(await getShuffleCandidates(db, filters, artistId), MAX_QUEUE_SIZE, songKey);
+  } else {
+    const groups = (await getShuffleCandidatesByArtist(db, filters)).map((items) => ({
+      weight: weighting === 'balanced' ? Math.sqrt(items.length) : 1,
+      items,
+    }));
+    picked = pickRandomFromGroups(groups, MAX_QUEUE_SIZE, songKey);
+  }
 
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync('DELETE FROM queue');
