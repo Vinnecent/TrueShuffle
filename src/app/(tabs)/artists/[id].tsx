@@ -155,7 +155,7 @@ export default function ArtistDetailScreen() {
 
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 8 },
   exclude: {
     flex: 1,
     flexDirection: 'row',

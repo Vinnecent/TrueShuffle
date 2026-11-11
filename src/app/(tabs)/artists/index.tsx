@@ -91,6 +91,7 @@ const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   search: {
     margin: 16,
+    marginTop: 8,
     marginBottom: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,

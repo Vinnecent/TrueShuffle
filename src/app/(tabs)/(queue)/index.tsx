@@ -264,7 +264,7 @@ export default function QueueScreen() {
 
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { padding: 16, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  header: { padding: 16, paddingTop: 8, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   summary: { flex: 1, color: colors.textMuted, fontSize: 13 },
   actions: { flexDirection: 'row', gap: 12 },
   summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },

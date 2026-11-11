@@ -451,7 +451,7 @@ async function loadState(db: SQLiteDatabase) {
 
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 16, gap: 12, paddingBottom: 48 },
+  content: { padding: 16, paddingTop: 8, gap: 12, paddingBottom: 48 },
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
   help: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   link: { color: colors.accent, textDecorationLine: 'underline' },
