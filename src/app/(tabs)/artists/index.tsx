@@ -7,6 +7,16 @@ import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import { getArtists, type ArtistRow } from '@/db/queries';
 import { colors, countLabel } from '@/theme';
 
+/** Fixed height of an artist row (52pt cover + 2×8pt padding), so the list knows its full length up front. */
+const ROW_HEIGHT = 68;
+
+/** Every row has the same height, so the list can place all rows (and size its scrollbar) without measuring them. */
+const getItemLayout = (_: ArrayLike<ArtistRow> | null | undefined, index: number) => ({
+  length: ROW_HEIGHT,
+  offset: ROW_HEIGHT * index,
+  index,
+});
+
 export default function ArtistsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -52,6 +62,7 @@ export default function ArtistsScreen() {
       <FlatList
         data={visible}
         keyExtractor={(a) => a.id}
+        getItemLayout={getItemLayout}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={<EmptyState title="No matching artists" />}
@@ -63,7 +74,7 @@ export default function ArtistsScreen() {
                 <Text style={screen.name} numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={screen.meta}>
+                <Text style={screen.meta} numberOfLines={1}>
                   {countLabel(item.album_count, 'release')} · {countLabel(item.track_count, 'song')}
                   {item.excluded ? ' · Excluded from shuffle' : ''}
                 </Text>
@@ -88,7 +99,7 @@ const screen = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, height: ROW_HEIGHT },
   name: { color: colors.text, fontSize: 16, fontWeight: '600' },
   meta: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
 });
