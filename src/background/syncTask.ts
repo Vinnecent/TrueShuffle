@@ -2,23 +2,18 @@ import * as BackgroundTask from 'expo-background-task';
 import * as SQLite from 'expo-sqlite';
 import * as TaskManager from 'expo-task-manager';
 
-import { getLibraryStats, getMeta, setMeta } from '@/db/queries';
+import { ARTIST_REFRESH_AFTER_MS, getLibraryStats, getMeta, setMeta } from '@/db/queries';
 import { DATABASE_NAME, initDatabase } from '@/db/schema';
 import { RateLimitError } from '@/spotify/api';
 import { isLoggedIn, NotAuthenticatedError } from '@/spotify/auth';
-import {
-  getRateLimitedUntil,
-  isSyncRunning,
-  LAST_FULL_SYNC_KEY,
-  SYNC_STARTED_KEY,
-  syncLibrary,
-} from '@/spotify/sync';
+import { getRateLimitedUntil, isSyncRunning, syncLibrary } from '@/spotify/sync';
 import { countLabel, formatDateTime } from '@/theme';
 
 /**
  * Background sync: Android (WorkManager) runs this every now and then, even when the app is closed.
- * Each run continues an unfinished sync for a few minutes and stops cleanly when Spotify's limit is hit;
- * runs during a known Spotify block end immediately without sending any request.
+ * Each run scans the artists not scanned for a week (oldest first) for a few minutes and stops cleanly
+ * when Spotify's limit is hit; runs with nothing due, or during a known Spotify block, end immediately
+ * without sending any request.
  */
 export const BACKGROUND_SYNC_TASK = 'trueshuffle-background-sync';
 
@@ -26,8 +21,6 @@ export const BACKGROUND_SYNC_TASK = 'trueshuffle-background-sync';
 const MINIMUM_INTERVAL_MINUTES = 60 * 12;
 /** Android gives a background run about 10 minutes; stop starting new artists well before that. */
 const RUN_BUDGET_MS = 7 * 60_000;
-/** After a complete sync, start a fresh one (new releases, new follows) once it is this old. */
-const FULL_RESYNC_AFTER_MS = 7 * 24 * 60 * 60_000;
 
 const STATUS_KEY = 'background_sync_status';
 
@@ -42,18 +35,21 @@ async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
 
   if (!(await isLoggedIn())) return 'Not connected to Spotify. Sync once in the app to log in.';
 
-  const interrupted = (await getMeta(db, SYNC_STARTED_KEY)) !== null;
-  const lastFull = await getMeta(db, LAST_FULL_SYNC_KEY);
-  if (!interrupted && lastFull && Date.now() - Date.parse(lastFull) < FULL_RESYNC_AFTER_MS) {
+  // Nothing to do (and no request sent) until an included artist's last scan is a week old.
+  // Newly followed artists are picked up on the next run that has anything due.
+  const stats = await getLibraryStats(db);
+  if (stats.artists > 0 && stats.freshArtists >= stats.artists - stats.excludedArtists) {
     return 'Library is up to date.';
   }
 
   try {
-    const result = await syncLibrary(db, undefined, { deadline: Date.now() + RUN_BUDGET_MS });
-    const stats = await getLibraryStats(db);
+    const result = await syncLibrary(db, undefined, {
+      deadline: Date.now() + RUN_BUDGET_MS,
+      olderThanMs: ARTIST_REFRESH_AFTER_MS,
+    });
     return result.completed
-      ? `Sync complete: ${countLabel(stats.tracks, 'song')}.`
-      : `Synced for a while (${stats.scannedArtists} of ${stats.artists} artists scanned). Continues next run.`;
+      ? `Updated ${countLabel(result.scanned, 'artist')}. Library is up to date.`
+      : `Updated ${countLabel(result.scanned, 'artist')}; ${result.remaining} more next run.`;
   } catch (e) {
     if (e instanceof RateLimitError) {
       const until = await getRateLimitedUntil(db);

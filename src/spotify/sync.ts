@@ -24,18 +24,33 @@ export type SyncProgress = {
 };
 
 export type SyncResult = {
+  /** Followed artists, including excluded ones. */
   artists: number;
   albums: number;
   tracks: number;
-  resumed: boolean;
-  /** False when the sync stopped early because its time budget ran out (it continues next time). */
+  /** Artists scanned in this run. */
+  scanned: number;
+  /** Artists that were due but not reached because the time budget ran out (they go first next time). */
+  remaining: number;
+  /** False when the sync stopped early because its time budget ran out. */
   completed: boolean;
 };
 
 export type SyncOptions = {
   /** Epoch ms after which no new artist is started; the sync then saves and returns early. */
   deadline?: number;
+  /**
+   * Only scan artists last scanned at least this long ago (never-scanned artists always qualify).
+   * Defaults to MANUAL_RESCAN_AFTER_MS.
+   */
+  olderThanMs?: number;
 };
+
+/**
+ * "Sync now" in Settings skips artists scanned within this time, so syncing again after an
+ * interruption (rate limit, network loss) continues with the rest instead of starting over.
+ */
+export const MANUAL_RESCAN_AFTER_MS = 60 * 60_000;
 
 /** Thrown when a sync is started while another one (foreground or background) is still running. */
 export class SyncInProgressError extends Error {
@@ -51,12 +66,10 @@ export class SyncInProgressError extends Error {
  */
 const CONCURRENCY = 2;
 
-/** Set while a sync is running; if it is still set at the next start, that sync was interrupted. */
-export const SYNC_STARTED_KEY = 'sync_started_at';
 /** When the last sync (complete or interrupted) ended. */
 const LAST_SYNC_KEY = 'last_sync';
-/** When the last sync that went through every artist finished. */
-export const LAST_FULL_SYNC_KEY = 'last_full_sync';
+/** Meta keys of the earlier pass-based sync, removed on the next sync. */
+const OBSOLETE_META_KEYS = ['sync_started_at', 'last_full_sync'];
 /** Epoch ms until which Spotify asked us not to send requests (from the last long 429). */
 export const RATE_LIMITED_UNTIL_KEY = 'rate_limited_until';
 
@@ -108,17 +121,19 @@ function createWriteLock() {
 }
 
 /**
- * Pulls every followed artist, their albums/EPs/singles and all songs from Spotify into the
- * local database.
+ * Brings the library up to date, oldest first: fetches the followed artists, then scans the artists
+ * whose releases were never fetched or were fetched longest ago, until all due artists are done or
+ * the deadline is reached. Artists excluded from the shuffle are not scanned; their stored releases
+ * stay as they are, and once included again their old scan date puts them at the front.
  *
- * Progress is saved per artist, so the library fills up while syncing and an interrupted sync
- * (rate limit, network loss, app closed) continues where it stopped on the next run.
- * Songs of releases that are already stored are never downloaded again.
+ * Every artist is saved as soon as it is scanned, so an interrupted run loses nothing: the artists it
+ * did not reach are still the oldest and go first next time. Songs of stored releases are never
+ * downloaded again, so rescanning an artist only costs its release list.
  */
 export async function syncLibrary(
   db: SQLiteDatabase,
   onProgress: (p: SyncProgress) => void = () => {},
-  { deadline = Infinity }: SyncOptions = {},
+  { deadline = Infinity, olderThanMs = MANUAL_RESCAN_AFTER_MS }: SyncOptions = {},
 ): Promise<SyncResult> {
   if (running) throw new SyncInProgressError();
   running = true;
@@ -135,32 +150,29 @@ export async function syncLibrary(
   // Set as soon as anything was saved, so an interrupted (partial) sync still counts as the last sync.
   let savedAnything = false;
   try {
-    const previousStart = await getMeta(db, SYNC_STARTED_KEY);
-    const resumed = previousStart !== null;
-    const syncStart = previousStart ?? new Date().toISOString();
-    if (!resumed) await setMeta(db, SYNC_STARTED_KEY, syncStart);
+    const placeholders = OBSOLETE_META_KEYS.map(() => '?').join(',');
+    await db.runAsync(`DELETE FROM meta WHERE key IN (${placeholders})`, OBSOLETE_META_KEYS);
 
-    // 1. Followed artists (cheap: 50 per request) — saved right away.
+    // 1. Followed artists (cheap: 50 per request) — saved right away; unfollowed artists are removed.
     report({ phase: 'Fetching followed artists' });
     const artists = await getFollowedArtists();
     await withLock(() => saveArtists(db, artists));
     savedAnything = true;
 
-    // 2. Releases + songs per artist, skipping artists already finished in this sync run.
-    const finished = new Set(
-      (
-        await db.getAllAsync<{ id: string }>(
-          'SELECT id FROM artists WHERE albums_synced_at IS NOT NULL AND albums_synced_at >= ?',
-          syncStart,
-        )
-      ).map((r) => r.id),
+    // 2. Due artists, never scanned first, then oldest scan first.
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const due = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM artists
+       WHERE id NOT IN (SELECT artist_id FROM excluded_artists)
+         AND (albums_synced_at IS NULL OR albums_synced_at < ?)
+       ORDER BY albums_synced_at IS NOT NULL, albums_synced_at`,
+      cutoff,
     );
-    const todo = artists.filter((a) => !finished.has(a.id));
-    let done = artists.length - todo.length;
+    let done = 0;
     let tracks = await countTracks(db);
-    report({ phase: 'Syncing artists', done, total: artists.length, tracks });
+    report({ phase: 'Syncing artists', done, total: due.length, tracks });
 
-    await runPool(todo, CONCURRENCY, async (artist) => {
+    await runPool(due, CONCURRENCY, async (artist) => {
       const albums = await getArtistAlbums(artist.id);
       await withLock(() => saveArtistAlbums(db, artist.id, albums));
 
@@ -178,18 +190,10 @@ export async function syncLibrary(
       report({ done: ++done });
     }, () => Date.now() >= deadline);
 
-    if (done < artists.length) {
-      // Out of time: everything so far is saved and the next run continues from here.
-      const tracksNow = await countTracks(db);
-      return { artists: artists.length, albums: 0, tracks: tracksNow, resumed, completed: false };
-    }
-
-    // 3. Everything fetched: drop releases no followed artist lists any more.
-    //    Cascades remove their songs and any queue entries pointing at them.
+    // 3. Drop releases no followed artist lists any more (an artist's list is replaced whenever it is
+    //    scanned, so this is correct after any run). Cascades remove their songs and queue entries.
     report({ phase: 'Cleaning up', done: 0, total: 0 });
     await withLock(() => db.execAsync('DELETE FROM albums WHERE id NOT IN (SELECT album_id FROM artist_albums)'));
-    await db.runAsync('DELETE FROM meta WHERE key = ?', SYNC_STARTED_KEY);
-    await setMeta(db, LAST_FULL_SYNC_KEY, new Date().toISOString());
 
     const totals = await db.getFirstAsync<{ albums: number; tracks: number }>(
       'SELECT (SELECT COUNT(*) FROM albums) AS albums, (SELECT COUNT(*) FROM tracks) AS tracks',
@@ -198,8 +202,9 @@ export async function syncLibrary(
       artists: artists.length,
       albums: totals?.albums ?? 0,
       tracks: totals?.tracks ?? 0,
-      resumed,
-      completed: true,
+      scanned: done,
+      remaining: due.length - done,
+      completed: done === due.length,
     };
   } catch (e) {
     if (e instanceof RateLimitError) {

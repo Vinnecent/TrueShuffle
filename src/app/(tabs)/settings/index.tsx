@@ -25,7 +25,7 @@ import {
   type BackgroundSyncStatus,
 } from '@/background/syncTask';
 import { Button } from '@/components/ui';
-import { clearLibrary, getLibraryStats, getMeta, type LibraryStats } from '@/db/queries';
+import { clearLibrary, getLibraryStats, type LibraryStats } from '@/db/queries';
 import { RateLimitError } from '@/spotify/api';
 import {
   ensureLoggedInWithScopes,
@@ -39,7 +39,7 @@ import {
 } from '@/spotify/auth';
 import {
   getRateLimitedUntil,
-  SYNC_STARTED_KEY,
+  MANUAL_RESCAN_AFTER_MS,
   SyncInProgressError,
   syncLibrary,
   type SyncProgress,
@@ -56,7 +56,6 @@ export default function SettingsScreen() {
   const [connected, setConnected] = useState(false);
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
-  const [syncInterrupted, setSyncInterrupted] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [rateLimitedUntil, setRateLimitedUntil] = useState<Date | null>(null);
   const [background, setBackground] = useState<{
@@ -70,7 +69,6 @@ export default function SettingsScreen() {
     setSavedCreds(state.creds);
     setConnected(state.loggedIn);
     setStats(state.stats);
-    setSyncInterrupted(state.syncInterrupted);
     setRateLimitedUntil(state.rateLimitedUntil);
     setBackground(state.background);
   }, []);
@@ -122,12 +120,15 @@ export default function SettingsScreen() {
         result = await syncLibrary(db, setProgress);
       }
       Alert.alert(
-        'Sync complete',
-        `${countLabel(result.artists, 'artist')} · ${countLabel(result.albums, 'release')} · ${countLabel(result.tracks, 'song')}`,
+        result.scanned === 0 ? 'Library is up to date' : 'Sync complete',
+        result.scanned === 0
+          ? `Every artist was scanned within the last ${MANUAL_RESCAN_AFTER_MS / 60_000} minutes.`
+          : `Updated ${countLabel(result.scanned, 'artist')}.\n\n` +
+              `${countLabel(result.artists, 'artist')} · ${countLabel(result.albums, 'release')} · ${countLabel(result.tracks, 'song')}`,
       );
     } catch (e) {
       const resumeHint =
-        '\n\nEverything synced so far is saved. Tap Sync again later and it continues where it stopped.';
+        '\n\nEverything synced so far is saved. Tap Sync again later and it continues with the artists it did not reach.';
       if (e instanceof SyncInProgressError) {
         Alert.alert('Already syncing', 'The background sync is running right now. Try again in a few minutes.');
       } else if (e instanceof RateLimitError) {
@@ -235,9 +236,11 @@ export default function SettingsScreen() {
         {stats && (
           <Text style={screen.stats}>
             {countLabel(stats.artists, 'artist')} · {countLabel(stats.albums, 'release')} · {countLabel(stats.tracks, 'song')}
-            {'\n'}Artists scanned: {stats.scannedArtists} of {stats.artists}
+            {'\n'}Artists up to date: {stats.freshArtists} of {stats.artists - stats.excludedArtists}
+            {stats.excludedArtists > 0
+              ? `\n${countLabel(stats.excludedArtists, 'excluded artist')} ${stats.excludedArtists === 1 ? 'is' : 'are'} not synced.`
+              : ''}
             {'\n'}Last sync: {stats.lastSync ? formatDateTime(stats.lastSync) : 'never'}
-            {syncInterrupted && !syncing ? '\nLast sync was interrupted. Syncing again continues it.' : ''}
             {rateLimitedUntil && !syncing
               ? `\nSpotify asks to wait until ${formatDateTime(rateLimitedUntil)} before syncing again.`
               : ''}
@@ -245,7 +248,7 @@ export default function SettingsScreen() {
         )}
 
         <Button
-          title={syncInterrupted ? 'Continue sync' : 'Sync library from Spotify'}
+          title="Sync library from Spotify"
           onPress={sync}
           loading={syncing}
           disabled={!hasCreds || dirty || syncing || clearing}
@@ -354,12 +357,11 @@ function CopyRedirectUri() {
 }
 
 async function loadState(db: SQLiteDatabase) {
-  const [creds, loggedIn, stats, syncStartedAt, rateLimitedUntil, bgAvailable, bgEnabled, bgStatus] =
+  const [creds, loggedIn, stats, rateLimitedUntil, bgAvailable, bgEnabled, bgStatus] =
     await Promise.all([
       getCredentials(),
       isLoggedIn(),
       getLibraryStats(db),
-      getMeta(db, SYNC_STARTED_KEY),
       getRateLimitedUntil(db),
       isBackgroundSyncAvailable().catch(() => false),
       isBackgroundSyncEnabled().catch(() => false),
@@ -369,7 +371,6 @@ async function loadState(db: SQLiteDatabase) {
     creds,
     loggedIn,
     stats,
-    syncInterrupted: syncStartedAt !== null,
     rateLimitedUntil,
     background: { available: bgAvailable, enabled: bgEnabled, status: bgStatus },
   };

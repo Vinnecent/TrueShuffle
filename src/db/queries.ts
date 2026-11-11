@@ -45,10 +45,16 @@ export type QueueRow = {
   image_url: string | null;
 };
 
+/** An artist counts as up to date when its releases were fetched within this time (new releases, changes). */
+export const ARTIST_REFRESH_AFTER_MS = 7 * 24 * 60 * 60_000;
+
 export type LibraryStats = {
+  /** Followed artists, including excluded ones. */
   artists: number;
-  /** Artists whose releases and songs have been fetched at least once. */
-  scannedArtists: number;
+  /** Artists excluded from the shuffle; they are not synced either. */
+  excludedArtists: number;
+  /** Included artists scanned within ARTIST_REFRESH_AFTER_MS. */
+  freshArtists: number;
   albums: number;
   tracks: number;
   lastSync: string | null;
@@ -260,16 +266,27 @@ export function getTrackByUri(
 }
 
 export async function getLibraryStats(db: SQLiteDatabase): Promise<LibraryStats> {
-  const row = await db.getFirstAsync<{ artists: number; scanned: number; albums: number; tracks: number }>(`
-    SELECT (SELECT COUNT(*) FROM artists) AS artists,
-           (SELECT COUNT(*) FROM artists WHERE albums_synced_at IS NOT NULL) AS scanned,
-           (SELECT COUNT(*) FROM albums)  AS albums,
-           (SELECT COUNT(*) FROM tracks)  AS tracks
-  `);
+  const freshSince = new Date(Date.now() - ARTIST_REFRESH_AFTER_MS).toISOString();
+  const row = await db.getFirstAsync<{
+    artists: number;
+    excluded: number;
+    fresh: number;
+    albums: number;
+    tracks: number;
+  }>(
+    `SELECT (SELECT COUNT(*) FROM artists) AS artists,
+            (SELECT COUNT(*) FROM excluded_artists) AS excluded,
+            (SELECT COUNT(*) FROM artists
+              WHERE id NOT IN (SELECT artist_id FROM excluded_artists) AND albums_synced_at >= ?) AS fresh,
+            (SELECT COUNT(*) FROM albums)  AS albums,
+            (SELECT COUNT(*) FROM tracks)  AS tracks`,
+    freshSince,
+  );
   const lastSync = await getMeta(db, 'last_sync');
   return {
     artists: row?.artists ?? 0,
-    scannedArtists: row?.scanned ?? 0,
+    excludedArtists: row?.excluded ?? 0,
+    freshArtists: row?.fresh ?? 0,
     albums: row?.albums ?? 0,
     tracks: row?.tracks ?? 0,
     lastSync,
