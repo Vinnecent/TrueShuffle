@@ -6,6 +6,12 @@
   <img src="docs/poster.png" alt="TrueShuffle" width="620">
 </p>
 
+<p align="center">
+  <a href="https://github.com/Vinnecent/TrueShuffle/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Vinnecent/TrueShuffle?label=Download%20APK&logo=android&logoColor=white&color=1ED760&style=for-the-badge" alt="Download the latest APK">
+  </a>
+</p>
+
 ## Features
 - **Truly random queue** – 75 randomly selected songs from your followed artists
 - **Send to Spotify** – the queue goes into a private "TrueShuffle" playlist, ready to play or start the playlist directly from the app
