@@ -23,7 +23,7 @@ import { countLabel, formatDateTime } from '@/theme';
 export const BACKGROUND_SYNC_TASK = 'trueshuffle-background-sync';
 
 /** Requested spacing between runs (minutes, at least 15). Android decides the actual timing. */
-const MINIMUM_INTERVAL_MINUTES = 60 * 24;
+const MINIMUM_INTERVAL_MINUTES = 60 * 12;
 /** Android gives a background run about 10 minutes; stop starting new artists well before that. */
 const RUN_BUDGET_MS = 7 * 60_000;
 /** After a complete sync, start a fresh one (new releases, new follows) once it is this old. */

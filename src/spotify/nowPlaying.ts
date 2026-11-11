@@ -40,18 +40,40 @@ export function broadcastLengthMs(length: number | null): number | null {
   return length > 36_000 ? length : length * 1000;
 }
 
-/** Current playback position, advancing on its own while playing (re-renders once a second). */
-export function useLivePosition(state: SpotifyPlaybackState | null): number {
+/**
+ * Current playback position, advancing on its own while `ticking` (re-renders once a second).
+ * Pass `useIsPlaying(…)` as `ticking`, so the clock stops once a "playing" state is outdated.
+ */
+export function useLivePosition(state: SpotifyPlaybackState | null, ticking: boolean): number {
   const [now, setNow] = useState(() => Date.now());
-  const playing = state?.playing ?? false;
 
   useEffect(() => {
-    if (!playing) return;
+    if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [playing, state]);
+  }, [ticking, state]);
 
   if (!state) return 0;
-  const elapsed = playing ? Math.max(0, now - state.positionAt) : 0;
+  const elapsed = state.playing ? Math.max(0, now - state.positionAt) : 0;
   return state.positionMs + elapsed;
+}
+
+/** How long past a song's end a "playing" state counts as outdated (e.g. Spotify was closed mid-song). */
+const STALE_AFTER_END_MS = 15_000;
+
+/**
+ * Whether Spotify is really playing. Spotify sends nothing when it is closed, so a "playing" state is
+ * treated as outdated once the song should have ended (plus a margin). Uses one timer, not a ticking clock.
+ */
+export function useIsPlaying(state: SpotifyPlaybackState | null, durationMs: number | null): boolean {
+  const [staleState, setStaleState] = useState<SpotifyPlaybackState | null>(null);
+
+  useEffect(() => {
+    if (!state?.playing || !durationMs) return;
+    const outdatedAt = state.positionAt + (durationMs - state.positionMs) + STALE_AFTER_END_MS;
+    const timer = setTimeout(() => setStaleState(state), Math.max(0, outdatedAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [state, durationMs]);
+
+  return !!state?.playing && staleState !== state;
 }

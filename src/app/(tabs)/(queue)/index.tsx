@@ -21,6 +21,7 @@ import {
   type ShuffleFilters,
 } from '@/db/queries';
 import { ensureLoggedInWithScopes, NotAuthenticatedError } from '@/spotify/auth';
+import { useIsPlaying, useSpotifyNowPlaying } from '@/spotify/nowPlaying';
 import {
   describePlaybackError,
   openPlaylistInSpotify,
@@ -42,6 +43,10 @@ export default function QueueScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const activeFilters = activeFilterCount(filters);
   const queueUris = useMemo(() => queue.map((q) => q.uri), [queue]);
+  // What Spotify plays, shared by the Now playing card and the list (-1 if it is not in the queue).
+  const nowPlaying = useSpotifyNowPlaying();
+  const playingIndex = nowPlaying?.trackId ? queueUris.indexOf(nowPlaying.trackId) : -1;
+  const isPlaying = useIsPlaying(nowPlaying, playingIndex >= 0 ? queue[playingIndex].duration_ms : null);
 
   const load = useCallback(async () => {
     const savedFilters = await getShuffleFilters(db);
@@ -149,7 +154,7 @@ export default function QueueScreen() {
   return (
     <View style={screen.container}>
       <View style={screen.header}>
-        <NowPlaying queueUris={queueUris} />
+        <NowPlaying state={nowPlaying} queueUris={queueUris} />
         <View style={screen.summaryRow}>
           <Text style={screen.summary}>
             {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
@@ -194,6 +199,7 @@ export default function QueueScreen() {
       <FlatList
         data={queue}
         keyExtractor={(item) => String(item.position)}
+        extraData={`${playingIndex}:${isPlaying}`}
         contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={
           shuffleTracks === 0 ? (
@@ -209,21 +215,39 @@ export default function QueueScreen() {
             </EmptyState>
           )
         }
-        renderItem={({ item, index }) => (
-          <Pressable onLongPress={() => confirmRemove(item)} style={screen.row}>
-            <Text style={screen.index}>{index + 1}</Text>
-            <Artwork uri={item.image_url} size={44} />
-            <View style={screen.rowText}>
-              <Text style={screen.title} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={screen.subtitle} numberOfLines={1}>
-                {item.artists} · {item.album_name}
-              </Text>
-            </View>
-            <Text style={screen.duration}>{formatDuration(item.duration_ms)}</Text>
-          </Pressable>
-        )}
+        renderItem={({ item, index }) => {
+          const current = index === playingIndex;
+          return (
+            <Pressable
+              onLongPress={() => confirmRemove(item)}
+              style={[screen.row, current && screen.rowCurrent]}
+              accessibilityState={current ? { selected: true } : undefined}
+              accessibilityHint={current ? (isPlaying ? 'Playing in Spotify' : 'Paused in Spotify') : undefined}
+            >
+              {current ? (
+                <View style={screen.indexIcon}>
+                  <Ionicons
+                    name={isPlaying ? 'volume-high' : 'pause'}
+                    size={18}
+                    color={isPlaying ? colors.accent : colors.textMuted}
+                  />
+                </View>
+              ) : (
+                <Text style={screen.index}>{index + 1}</Text>
+              )}
+              <Artwork uri={item.image_url} size={44} />
+              <View style={screen.rowText}>
+                <Text style={[screen.title, current && { color: colors.accent }]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={screen.subtitle} numberOfLines={1}>
+                  {item.artists} · {item.album_name}
+                </Text>
+              </View>
+              <Text style={screen.duration}>{formatDuration(item.duration_ms)}</Text>
+            </Pressable>
+          );
+        }}
       />
 
       <FilterSheet
@@ -258,7 +282,9 @@ const screen = StyleSheet.create({
   filterButtonOn: { borderColor: colors.accent },
   filterButtonText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
+  rowCurrent: { backgroundColor: colors.surface },
   index: { color: colors.textMuted, width: 22, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  indexIcon: { width: 22, alignItems: 'flex-end' },
   rowText: { flex: 1 },
   title: { color: colors.text, fontSize: 15, fontWeight: '600' },
   subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },

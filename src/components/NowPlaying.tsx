@@ -5,23 +5,27 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Artwork } from '@/components/ui';
 import { getTrackByUri } from '@/db/queries';
-import { broadcastLengthMs, isNowPlayingSupported, useLivePosition, useSpotifyNowPlaying } from '@/spotify/nowPlaying';
+import {
+  broadcastLengthMs,
+  isNowPlayingSupported,
+  useIsPlaying,
+  useLivePosition,
+  type SpotifyPlaybackState,
+} from '@/spotify/nowPlaying';
 import { colors, formatDuration } from '@/theme';
-
-/** Seconds past the song's end after which a "playing" state is treated as outdated (e.g. Spotify was closed). */
-const STALE_AFTER_END_MS = 15_000;
 
 type StoredTrack = { duration_ms: number; image_url: string | null };
 
 type Props = {
+  /** From `useSpotifyNowPlaying()` on the screen, which shares it with the queue list. */
+  state: SpotifyPlaybackState | null;
   /** Spotify URIs of the queued songs, in order, to show "Song 3 of 75 in your queue". */
   queueUris: string[];
 };
 
 /** "Now playing" card for the song the Spotify app plays. Renders nothing when that is unknown. */
-export function NowPlaying({ queueUris }: Props) {
+export function NowPlaying({ state, queueUris }: Props) {
   const db = useSQLiteContext();
-  const state = useSpotifyNowPlaying();
   const [lookup, setLookup] = useState<{ uri: string; row: StoredTrack | null } | null>(null);
 
   const trackId = state?.trackId ?? null;
@@ -37,14 +41,13 @@ export function NowPlaying({ queueUris }: Props) {
   const stored = lookup && lookup.uri === trackId ? lookup.row : null;
 
   const durationMs = stored?.duration_ms || broadcastLengthMs(state?.length ?? null);
-  const position = useLivePosition(state);
+  const playing = useIsPlaying(state, durationMs);
+  const position = useLivePosition(state, playing);
 
   // Nothing to show on iOS/web (no native module) or until Spotify has broadcast a song,
   // e.g. when "Device Broadcast Status" is off in Spotify's settings.
   if (!isNowPlayingSupported || !state?.title) return null;
 
-  const stale = state.playing && durationMs !== null && position > durationMs + STALE_AFTER_END_MS;
-  const playing = state.playing && !stale;
   const shownPosition = durationMs ? Math.min(position, durationMs) : position;
   const progress = durationMs ? shownPosition / durationMs : 0;
   const queueIndex = trackId ? queueUris.indexOf(trackId) : -1;

@@ -17,4 +17,4 @@
 ## Requirements
 
 - Android 7.0 or newer
-- A Spotify premium account and a developer app (description for the developer app in the app settings)
+- A **Spotify premium** account and a developer app (description for the developer app in the app settings)
