@@ -11,6 +11,11 @@ export const FILTERS: { key: keyof ShuffleFilters; label: string; help: string }
   { key: 'excludeLive', label: 'Exclude live', help: 'Live recordings, e.g. “Song - Live” or “Song (Live at …)”' },
   { key: 'excludeIntro', label: 'Exclude intro songs', help: 'The first song of a release if it is under 1:30' },
   { key: 'excludeInstrumental', label: 'Exclude instrumental', help: 'Songs with “instrumental” in the title' },
+  {
+    key: 'preferDeluxe',
+    label: 'Exclude albums with a deluxe version',
+    help: 'Plays only the deluxe version, if it has all of the album’s songs',
+  },
 ];
 
 export const WEIGHTINGS: { key: ArtistWeighting; label: string; help: string }[] = [

@@ -111,6 +111,11 @@ export type ShuffleFilters = {
   excludeIntro: boolean;
   /** Skip songs with "instrumental" in the title. */
   excludeInstrumental: boolean;
+  /**
+   * Skip albums that have a deluxe version (same artist, same name plus "Deluxe") containing all of
+   * their songs, so those songs only come from the deluxe version.
+   */
+  preferDeluxe: boolean;
 };
 
 export const DEFAULT_SHUFFLE_FILTERS: ShuffleFilters = {
@@ -119,6 +124,7 @@ export const DEFAULT_SHUFFLE_FILTERS: ShuffleFilters = {
   excludeLive: false,
   excludeIntro: false,
   excludeInstrumental: false,
+  preferDeluxe: false,
 };
 
 /** Meta keys of the filters; Clear library keeps every `filter_` key (they are preferences, not synced data). */
@@ -128,6 +134,7 @@ const FILTER_KEYS: Record<keyof ShuffleFilters, string> = {
   excludeLive: 'filter_exclude_live',
   excludeIntro: 'filter_exclude_intro',
   excludeInstrumental: 'filter_exclude_instrumental',
+  preferDeluxe: 'filter_prefer_deluxe',
 };
 
 /** Intros are at most this long (1:30). */
@@ -135,6 +142,7 @@ const INTRO_MAX_MS = 90_000;
 
 type ShuffleCandidate = {
   id: string;
+  album_id: string;
   name: string;
   artists: string;
   disc_number: number;
@@ -148,15 +156,111 @@ const LIVE_PATTERN =
   // Keeps titles like "Alive", "Olive" or "Live Forever".
   /\s[-–—]\s.*\blive\b|[([][^)\]]*\blive\b/i;
 
+/** Data a filter needs beyond the song itself. */
+type FilterContext = {
+  /** Albums fully contained in a deluxe version (only loaded when preferDeluxe is on). */
+  coveredByDeluxe: Set<string>;
+};
+
 /** What each filter removes; titles are matched case-insensitively. */
-const FILTER_TESTS: Record<keyof ShuffleFilters, (t: ShuffleCandidate) => boolean> = {
+const FILTER_TESTS: Record<keyof ShuffleFilters, (t: ShuffleCandidate, ctx: FilterContext) => boolean> = {
   excludeAcoustic: (t) => /acoustic/i.test(t.name),
   excludeRemix: (t) => /remix/i.test(t.name),
   excludeLive: (t) => LIVE_PATTERN.test(t.name),
   excludeIntro: (t) =>
     t.disc_number === 1 && t.track_number === 1 && t.duration_ms < INTRO_MAX_MS && t.album_total_tracks > 1,
   excludeInstrumental: (t) => /instrumental/i.test(t.name),
+  preferDeluxe: (t, ctx) => ctx.coveredByDeluxe.has(t.album_id),
 };
+
+const DELUXE_PATTERN = /deluxe/i;
+
+/**
+ * The album name without its deluxe part, lower-cased: "Reborn (Deluxe)", "Echo [Deluxe Version]",
+ * "Heritage: Absolute Deluxe Edition" and "Self Inflicted Deluxe Edition" give "reborn", "echo", "heritage"
+ * and "self inflicted".
+ */
+function deluxeBaseName(name: string): string {
+  return name
+    .replace(/\s*[([][^)\]]*deluxe[^)\]]*[)\]]/gi, '')
+    .replace(/\s*[-–—:]\s*[^-–—:]*deluxe.*$/i, '')
+    .replace(/\s+deluxe(\s+(edition|version|reissue))?\s*$/i, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * A song title for comparing two releases: lower-cased, typographic apostrophes made plain and featured
+ * artists left out, so "Song ft. A" matches "Song - with A" and "Song (feat. A)".
+ */
+function songTitleKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/\s*[([](feat\.?|ft\.?|with)\s[^)\]]*[)\]]/g, '')
+    .replace(/\s+-\s+(feat\.?|ft\.?|with)\s.*$/, '')
+    .replace(/\s+(feat\.?|ft\.?)\s.*$/, '')
+    .trim();
+}
+
+/**
+ * Albums whose songs are all on a deluxe version by the same artist, e.g. "Reborn" when "Reborn (Deluxe)"
+ * has every song of it. An album missing even one of its songs from the deluxe version is not included.
+ */
+/** Releases of artists that have at least one release with "deluxe" in its name (LIKE ignores case). */
+const DELUXE_ARTIST_ALBUMS = `
+  SELECT aa.album_id FROM artist_albums aa
+  WHERE aa.artist_id IN (
+    SELECT aa2.artist_id FROM artist_albums aa2 JOIN albums d ON d.id = aa2.album_id WHERE d.name LIKE '%deluxe%'
+  )`;
+
+async function getAlbumsCoveredByDeluxe(db: SQLiteDatabase): Promise<Set<string>> {
+  const [albums, tracks] = await Promise.all([
+    db.getAllAsync<{ artist_id: string; album_id: string; name: string }>(
+      `SELECT aa.artist_id, aa.album_id, al.name
+       FROM artist_albums aa JOIN albums al ON al.id = aa.album_id
+       WHERE aa.album_id IN (${DELUXE_ARTIST_ALBUMS})`,
+    ),
+    db.getAllAsync<{ album_id: string; name: string }>(
+      `SELECT album_id, name FROM tracks
+       WHERE album_id IN (${DELUXE_ARTIST_ALBUMS})`,
+    ),
+  ]);
+  const songsByAlbum = new Map<string, Set<string>>();
+  for (const t of tracks) {
+    const set = songsByAlbum.get(t.album_id) ?? new Set<string>();
+    set.add(songTitleKey(t.name));
+    songsByAlbum.set(t.album_id, set);
+  }
+  const albumsByArtist = new Map<string, { id: string; name: string }[]>();
+  for (const a of albums) {
+    const list = albumsByArtist.get(a.artist_id) ?? [];
+    list.push({ id: a.album_id, name: a.name });
+    albumsByArtist.set(a.artist_id, list);
+  }
+
+  const covered = new Set<string>();
+  for (const list of albumsByArtist.values()) {
+    for (const deluxe of list) {
+      if (!DELUXE_PATTERN.test(deluxe.name)) continue;
+      const base = deluxeBaseName(deluxe.name);
+      const deluxeSongs = songsByAlbum.get(deluxe.id);
+      if (!base || !deluxeSongs) continue;
+      for (const regular of list) {
+        if (regular.id === deluxe.id || DELUXE_PATTERN.test(regular.name)) continue;
+        if (regular.name.trim().toLowerCase() !== base) continue;
+        const songs = songsByAlbum.get(regular.id);
+        if (songs && [...songs].every((song) => deluxeSongs.has(song))) covered.add(regular.id);
+      }
+    }
+  }
+  return covered;
+}
+
+/** What the enabled filters need to test songs; loads only what they use. */
+async function loadFilterContext(db: SQLiteDatabase, filters: ShuffleFilters): Promise<FilterContext> {
+  return { coveredByDeluxe: filters.preferDeluxe ? await getAlbumsCoveredByDeluxe(db) : new Set() };
+}
 
 export async function getShuffleFilters(db: SQLiteDatabase): Promise<ShuffleFilters> {
   const rows = await db.getAllAsync<{ key: string; value: string | null }>(
@@ -196,9 +300,9 @@ export async function setArtistWeighting(db: SQLiteDatabase, weighting: ArtistWe
 }
 
 /** Whether a song passes the enabled filters. */
-function passesShuffleFilters(track: ShuffleCandidate, filters: ShuffleFilters): boolean {
+function passesShuffleFilters(track: ShuffleCandidate, filters: ShuffleFilters, ctx: FilterContext): boolean {
   for (const key of Object.keys(FILTER_TESTS) as (keyof ShuffleFilters)[]) {
-    if (filters[key] && FILTER_TESTS[key](track)) return false;
+    if (filters[key] && FILTER_TESTS[key](track, ctx)) return false;
   }
   return true;
 }
@@ -214,7 +318,7 @@ async function getShuffleCandidates(
   filters: ShuffleFilters,
   artistId?: string,
 ): Promise<ShuffleCandidate[]> {
-  const select = `SELECT t.id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+  const select = `SELECT t.id, t.album_id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
             al.total_tracks AS album_total_tracks
      FROM tracks t
      JOIN albums al ON al.id = t.album_id`;
@@ -225,7 +329,8 @@ async function getShuffleCandidates(
         artistId,
       )
     : await db.getAllAsync<ShuffleCandidate>(`${select} WHERE ${SHUFFLE_TRACKS_WHERE}`);
-  return rows.filter((t) => passesShuffleFilters(t, filters));
+  const ctx = await loadFilterContext(db, filters);
+  return rows.filter((t) => passesShuffleFilters(t, filters, ctx));
 }
 
 /**
@@ -237,16 +342,17 @@ async function getShuffleCandidatesByArtist(
   filters: ShuffleFilters,
 ): Promise<ShuffleCandidate[][]> {
   const rows = await db.getAllAsync<ShuffleCandidate & { artist_id: string }>(
-    `SELECT t.id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+    `SELECT t.id, t.album_id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
             al.total_tracks AS album_total_tracks, aa.artist_id
      FROM tracks t
      JOIN albums al ON al.id = t.album_id
      JOIN artist_albums aa ON aa.album_id = t.album_id
      WHERE aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)`,
   );
+  const ctx = await loadFilterContext(db, filters);
   const byArtist = new Map<string, ShuffleCandidate[]>();
   for (const row of rows) {
-    if (!passesShuffleFilters(row, filters)) continue;
+    if (!passesShuffleFilters(row, filters, ctx)) continue;
     const list = byArtist.get(row.artist_id);
     if (list) list.push(row);
     else byArtist.set(row.artist_id, [row]);
