@@ -1,5 +1,7 @@
 import { DarkTheme, type Theme } from 'expo-router';
 
+import { i18n, t } from '@/i18n';
+
 export const colors = {
   background: '#121212',
   /** Cards, sheets, the tab bar and the playing song's row. */
@@ -43,35 +45,44 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/**
- * Local date and time as "dd/mm/yyyy HH:MM" (24-hour clock), e.g. "09/11/2026 14:57".
- * Built by hand so the format is the same whatever the phone's locale settings are.
- */
+/** Local date and time in the app language's format, e.g. "09/11/2026 14:57" (24-hour clock). */
 export function formatDateTime(value: Date | string): string {
   const d = typeof value === 'string' ? new Date(value) : value;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const date = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-  return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return t('date.full', {
+    day: pad(d.getDate()),
+    month: pad(d.getMonth() + 1),
+    year: String(d.getFullYear()),
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  });
 }
+
+const pad = (n: number) => String(n).padStart(2, '0');
 
 /**
  * Short local date and time relative to now: "today 14:57", "yesterday 08:12", "tomorrow 09:00",
- * "3 days ago", and "dd/mm/yyyy HH:MM" (see formatDateTime) for anything further away.
+ * "3 days ago", and the full date (see formatDateTime) for anything further away.
  */
 export function formatRelativeDateTime(value: Date | string): string {
   const d = typeof value === 'string' ? new Date(value) : value;
-  const pad = (n: number) => String(n).padStart(2, '0');
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000);
-  if (days === 0) return `today ${time}`;
-  if (days === 1) return `yesterday ${time}`;
-  if (days === -1) return `tomorrow ${time}`;
-  if (days > 1 && days < 7) return `${days} days ago`;
+  if (days === 0) return t('date.today', { time });
+  if (days === 1) return t('date.yesterday', { time });
+  if (days === -1) return t('date.tomorrow', { time });
+  if (days > 1 && days < 7) return t('date.daysAgo', { count: days });
   return formatDateTime(d);
 }
 
-/** A count with the right word form, e.g. "1 song", "2 songs", "1,204 releases". */
-export function countLabel(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+/** A number with the app language's digit grouping, e.g. 12,673 in English and 12.673 in German. */
+export function formatNumber(value: number): string {
+  return new Intl.NumberFormat(i18n.language).format(value);
+}
+
+/** Things counted in the UI; each has singular and plural forms in the translations (`count.*`). */
+export type CountUnit = 'artist' | 'release' | 'song' | 'excludedArtist';
+
+/** A count with the right word form in the app language, e.g. "1 song", "2 songs", "1,204 releases". */
+export function countLabel(count: number, unit: CountUnit): string {
+  return t(`count.${unit}`, { count });
 }

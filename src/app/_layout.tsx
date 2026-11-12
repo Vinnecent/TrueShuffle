@@ -1,3 +1,5 @@
+// Sets up the app's texts in the chosen language; first, so everything below can use them.
+import '@/i18n';
 // Defines the background sync task; must be loaded before anything else (see the file).
 import '@/background/syncTask';
 

@@ -1,40 +1,31 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ArtistWeighting, ShuffleFilters } from '@/db/queries';
-import { colors, countLabel } from '@/theme';
+import { colors } from '@/theme';
 
-export const FILTERS: { key: keyof ShuffleFilters; label: string; help: string }[] = [
-  { key: 'excludeAcoustic', label: 'Exclude acoustic', help: 'Songs with “acoustic” in the title' },
-  { key: 'excludeRemix', label: 'Exclude remix', help: 'Songs with “remix” in the title' },
-  { key: 'excludeLive', label: 'Exclude live', help: 'Live recordings, e.g. “Song - Live” or “Song (Live at …)”' },
-  { key: 'excludeIntro', label: 'Exclude intro songs', help: 'The first song of a release if it is under 1:30' },
-  { key: 'excludeInstrumental', label: 'Exclude instrumental', help: 'Songs with “instrumental” in the title' },
-  {
-    key: 'preferDeluxe',
-    label: 'Exclude albums with a deluxe version',
-    help: 'Plays only the deluxe version, if it has all of the album’s songs',
-  },
+/** The filters in the order shown; their texts are `filters.<key>` and `filters.<key>Help`. */
+export const FILTERS: (keyof ShuffleFilters)[] = [
+  'excludeAcoustic',
+  'excludeRemix',
+  'excludeLive',
+  'excludeIntro',
+  'excludeInstrumental',
+  'preferDeluxe',
 ];
 
-export const WEIGHTINGS: { key: ArtistWeighting; label: string; help: string }[] = [
-  {
-    key: 'song',
-    label: 'Per song',
-    help: 'Every song has the same chance, so artists with many songs come up more often.',
-  },
-  {
-    key: 'balanced',
-    label: 'Balanced',
-    help: 'Artists with many songs still come up more often, but far less than per song.',
-  },
-  { key: 'artist', label: 'Per artist', help: 'Every artist has the same chance, however many songs they have.' },
-];
+/** The artist balance options with the keys of their texts. */
+export const WEIGHTINGS = [
+  { key: 'song', label: 'filters.weightingSong', help: 'filters.weightingSongHelp' },
+  { key: 'balanced', label: 'filters.weightingBalanced', help: 'filters.weightingBalancedHelp' },
+  { key: 'artist', label: 'filters.weightingArtist', help: 'filters.weightingArtistHelp' },
+] as const satisfies readonly { key: ArtistWeighting; label: string; help: string }[];
 
 /** Number of settings changed from their default (filters turned on, plus a non-default weighting). */
 export function activeFilterCount(filters: ShuffleFilters, weighting: ArtistWeighting): number {
-  return FILTERS.filter(({ key }) => filters[key]).length + (weighting === 'song' ? 0 : 1);
+  return FILTERS.filter((key) => filters[key]).length + (weighting === 'song' ? 0 : 1);
 }
 
 type Props = {
@@ -60,6 +51,7 @@ export function FilterSheet({
   onChangeWeighting,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -71,16 +63,16 @@ export function FilterSheet({
       navigationBarTranslucent
       onRequestClose={onClose}
     >
-      <Pressable style={sheet.backdrop} onPress={onClose} accessibilityLabel="Close filters" />
+      <Pressable style={sheet.backdrop} onPress={onClose} accessibilityLabel={t('filters.close')} />
       <View style={[sheet.panel, { paddingBottom: insets.bottom + 16 }]}>
         <View style={sheet.header}>
-          <Text style={sheet.title}>Shuffle filters</Text>
+          <Text style={sheet.title}>{t('filters.title')}</Text>
           <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button">
-            <Text style={sheet.done}>Done</Text>
+            <Text style={sheet.done}>{t('common.done')}</Text>
           </Pressable>
         </View>
         <View style={sheet.section}>
-          <Text style={sheet.sectionLabel}>Artist balance</Text>
+          <Text style={sheet.sectionLabel}>{t('filters.artistBalance')}</Text>
           <View style={sheet.segments} accessibilityRole="radiogroup">
             {WEIGHTINGS.map(({ key, label }) => {
               const selected = weighting === key;
@@ -97,15 +89,15 @@ export function FilterSheet({
                     pressed && !selected && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[sheet.segmentText, selected && sheet.segmentTextSelected]}>{label}</Text>
+                  <Text style={[sheet.segmentText, selected && sheet.segmentTextSelected]}>{t(label)}</Text>
                 </Pressable>
               );
             })}
           </View>
-          <Text style={sheet.help}>{WEIGHTINGS.find((w) => w.key === weighting)?.help}</Text>
+          <Text style={sheet.help}>{t(WEIGHTINGS.find((w) => w.key === weighting)?.help ?? WEIGHTINGS[0].help)}</Text>
         </View>
-        <Text style={[sheet.sectionLabel, { paddingHorizontal: 16, paddingTop: 8 }]}>Leave out</Text>
-        {FILTERS.map(({ key, label, help }) => {
+        <Text style={[sheet.sectionLabel, { paddingHorizontal: 16, paddingTop: 8 }]}>{t('filters.leaveOut')}</Text>
+        {FILTERS.map((key) => {
           const on = filters[key];
           return (
             <Pressable
@@ -122,13 +114,13 @@ export function FilterSheet({
                 color={on ? colors.accent : colors.textMuted}
               />
               <View style={{ flex: 1 }}>
-                <Text style={sheet.label}>{label}</Text>
-                <Text style={sheet.help}>{help}</Text>
+                <Text style={sheet.label}>{t(`filters.${key}`)}</Text>
+                <Text style={sheet.help}>{t(`filters.${key}Help`)}</Text>
               </View>
             </Pressable>
           );
         })}
-        <Text style={sheet.footer}>Shuffle draws from {countLabel(shuffleTracks, 'song')}</Text>
+        <Text style={sheet.footer}>{t('filters.drawsFrom', { count: shuffleTracks })}</Text>
       </View>
     </Modal>
   );

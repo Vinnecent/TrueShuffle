@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { Linking } from 'react-native';
 
+import { t } from '@/i18n';
+
 import {
   createPlaylist,
   isPlaylistInLibrary,
@@ -20,10 +22,10 @@ const PLAYLIST_DESCRIPTION =
 export function describePlaybackError(e: unknown): string {
   if (e instanceof SpotifyApiError) {
     if (e.status === 404 || e.reason === 'NO_ACTIVE_DEVICE') {
-      return 'No active Spotify device. Open the Spotify app, play any song for a moment, then try again.';
+      return t('errors.noActiveDevice');
     }
     if (e.status === 403 || e.reason === 'PREMIUM_REQUIRED') {
-      return 'Starting playback from another app needs Spotify Premium. Open the TrueShuffle playlist in Spotify instead.';
+      return t('errors.premiumRequired');
     }
   }
   return (e as Error)?.message ?? String(e);

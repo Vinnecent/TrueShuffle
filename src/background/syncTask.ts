@@ -7,7 +7,7 @@ import { DATABASE_NAME, initDatabase } from '@/db/schema';
 import { RateLimitError } from '@/spotify/api';
 import { isLoggedIn, NotAuthenticatedError } from '@/spotify/auth';
 import { getRateLimitedUntil, isSyncRunning, syncLibrary } from '@/spotify/sync';
-import { countLabel } from '@/theme';
+import { t } from '@/i18n';
 
 /**
  * Background sync: Android (WorkManager) runs this every now and then, even when the app is closed.
@@ -24,23 +24,41 @@ const RUN_BUDGET_MS = 7 * 60_000;
 
 const STATUS_KEY = 'background_sync_status';
 
-export type BackgroundSyncStatus = { at: string; message: string };
+/** Result codes of a run; shown as `backgroundSync.<code>` in the language the app has when it is displayed. */
+type StatusCode =
+  | 'alreadyRunning'
+  | 'waitingForLimit'
+  | 'notConnected'
+  | 'upToDate'
+  | 'completed'
+  | 'partial'
+  | 'rateLimited'
+  | 'loginExpired'
+  | 'failed';
 
+type RunResult = { code: StatusCode; params?: { count?: number; remaining?: number; message?: string } };
 
-async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
-  if (isSyncRunning()) return 'Skipped: a sync was already running in the app.';
+export type BackgroundSyncStatus = RunResult & { at: string };
+
+/** A run's result as text in the current language. */
+export function describeBackgroundSyncStatus(status: BackgroundSyncStatus): string {
+  return t(`backgroundSync.${status.code}`, status.params ?? {});
+}
+
+async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<RunResult> {
+  if (isSyncRunning()) return { code: 'alreadyRunning' };
 
   const blockedUntil = await getRateLimitedUntil(db);
   // The Sync button in Settings shows when the wait ends, so the stored message needs no date.
-  if (blockedUntil) return 'Waiting for Spotify’s limit to end.';
+  if (blockedUntil) return { code: 'waitingForLimit' };
 
-  if (!(await isLoggedIn())) return 'Not connected to Spotify. Sync once in the app to log in.';
+  if (!(await isLoggedIn())) return { code: 'notConnected' };
 
   // Nothing to do (and no request sent) until an included artist's last scan is a week old.
   // Newly followed artists are picked up on the next run that has anything due.
   const stats = await getLibraryStats(db);
   if (stats.artists > 0 && stats.freshArtists >= stats.artists - stats.excludedArtists) {
-    return 'Library is up to date.';
+    return { code: 'upToDate' };
   }
 
   try {
@@ -49,12 +67,12 @@ async function runBackgroundSync(db: SQLite.SQLiteDatabase): Promise<string> {
       olderThanMs: ARTIST_REFRESH_AFTER_MS,
     });
     return result.completed
-      ? `Updated ${countLabel(result.scanned, 'artist')}. Library is up to date.`
-      : `Updated ${countLabel(result.scanned, 'artist')}; ${result.remaining} more next run.`;
+      ? { code: 'completed', params: { count: result.scanned } }
+      : { code: 'partial', params: { count: result.scanned, remaining: result.remaining } };
   } catch (e) {
-    if (e instanceof RateLimitError) return 'Spotify’s limit reached. Continues after the wait.';
-    if (e instanceof NotAuthenticatedError) return 'Spotify login expired. Sync once in the app to log in again.';
-    return `Failed: ${(e as Error).message}`;
+    if (e instanceof RateLimitError) return { code: 'rateLimited' };
+    if (e instanceof NotAuthenticatedError) return { code: 'loginExpired' };
+    return { code: 'failed', params: { message: (e as Error).message } };
   }
 }
 
@@ -65,8 +83,8 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
     // A separate connection: the SQLiteProvider is not mounted when the app runs headless.
     const db = await SQLite.openDatabaseAsync(DATABASE_NAME);
     await initDatabase(db);
-    const message = await runBackgroundSync(db);
-    const status: BackgroundSyncStatus = { at: new Date().toISOString(), message };
+    const result = await runBackgroundSync(db);
+    const status: BackgroundSyncStatus = { at: new Date().toISOString(), ...result };
     await setMeta(db, STATUS_KEY, JSON.stringify(status));
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (e) {
@@ -95,7 +113,9 @@ export async function getBackgroundSyncStatus(db: SQLite.SQLiteDatabase): Promis
   const raw = await getMeta(db, STATUS_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as BackgroundSyncStatus;
+    const status = JSON.parse(raw) as Partial<BackgroundSyncStatus>;
+    // Statuses saved before the app was translated have no code; they are replaced by the next run.
+    return typeof status.code === 'string' && typeof status.at === 'string' ? (status as BackgroundSyncStatus) : null;
   } catch {
     return null;
   }

@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 import { getAccessToken } from './auth';
 
 const API_BASE = 'https://api.spotify.com/v1';
@@ -27,9 +29,9 @@ export class RateLimitError extends Error {
   constructor(public retryAfterSeconds: number) {
     const minutes = Math.ceil(retryAfterSeconds / 60);
     super(
-      `Spotify is rate-limiting this app and asks to wait about ${
-        minutes >= 120 ? `${Math.round(minutes / 60)} hours` : `${minutes} minutes`
-      } before the next request.`,
+      minutes >= 120
+        ? t('errors.rateLimitHours', { count: Math.round(minutes / 60) })
+        : t('errors.rateLimitMinutes', { count: minutes }),
     );
     this.name = 'RateLimitError';
   }
@@ -113,7 +115,7 @@ export async function spotifyFetch<T>(pathOrUrl: string, init: RequestInit = {})
       });
     } catch (e) {
       if (++failures > MAX_RETRIES) {
-        throw new Error(`Network error talking to Spotify (${endpoint}): ${(e as Error).message}`);
+        throw new Error(t('errors.network', { endpoint, message: (e as Error).message }));
       }
       await sleep(1000 * 2 ** failures);
       continue;
@@ -139,7 +141,7 @@ export async function spotifyFetch<T>(pathOrUrl: string, init: RequestInit = {})
 
     const text = await res.text();
     if (!res.ok) {
-      let message = `Spotify API error ${res.status} (${endpoint})`;
+      let message = t('errors.api', { status: res.status, endpoint });
       let reason: string | undefined;
       try {
         const body = JSON.parse(text) as { error?: { message?: string; reason?: string } };
@@ -261,7 +263,7 @@ export async function createPlaylist(name: string, description: string): Promise
     headers: JSON_HEADERS,
     body: JSON.stringify({ name, description, public: false }),
   });
-  if (!res?.id) throw new Error('Spotify did not return the new playlist.');
+  if (!res?.id) throw new Error(t('errors.noPlaylistReturned'));
   return res.id;
 }
 
@@ -275,7 +277,7 @@ export async function isPlaylistInLibrary(playlistId: string): Promise<boolean> 
 /** Replaces all items of a playlist with `uris` (at most PLAYLIST_REPLACE_LIMIT). */
 export async function replacePlaylistItems(playlistId: string, uris: string[]): Promise<void> {
   if (uris.length > PLAYLIST_REPLACE_LIMIT) {
-    throw new Error(`A playlist can be replaced with at most ${PLAYLIST_REPLACE_LIMIT} songs at once.`);
+    throw new Error(t('errors.tooManySongs', { count: PLAYLIST_REPLACE_LIMIT }));
   }
   await spotifyFetch(`/playlists/${playlistId}/items`, {
     method: 'PUT',

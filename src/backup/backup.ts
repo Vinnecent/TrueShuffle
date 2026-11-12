@@ -4,6 +4,8 @@ import * as Sharing from 'expo-sharing';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { invalidateShuffleCandidates } from '@/db/queries';
+import { t } from '@/i18n';
+import type { Translations } from '@/i18n/locales/en';
 import { getStoredPlaylistId, restorePlaylistId } from '@/spotify/playback';
 
 /**
@@ -201,7 +203,7 @@ export async function saveLibraryToFolder(db: SQLiteDatabase): Promise<string | 
  * to a cloud drive. Only the latest shared export is kept in the app's cache.
  */
 export async function shareLibrary(db: SQLiteDatabase): Promise<void> {
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing files is not available on this device.');
+  if (!(await Sharing.isAvailableAsync())) throw new Error(t('errors.sharingUnavailable'));
 
   const backup = await buildBackup(db);
   const folder = new Directory(Paths.cache, 'backup');
@@ -212,7 +214,7 @@ export async function shareLibrary(db: SQLiteDatabase): Promise<void> {
   file.create();
   await file.write(JSON.stringify(backup));
 
-  await Sharing.shareAsync(file.uri, { mimeType: JSON_MIME, dialogTitle: 'Share TrueShuffle backup' });
+  await Sharing.shareAsync(file.uri, { mimeType: JSON_MIME, dialogTitle: t('backup.shareTitle') });
 }
 
 // ---------------------------------------------------------------- import
@@ -221,10 +223,17 @@ const isString = (v: unknown): v is string => typeof v === 'string';
 const isNullableString = (v: unknown): v is string | null => v === null || typeof v === 'string';
 const isInt = (v: unknown): v is number => Number.isInteger(v);
 
-function checkRows<T>(value: unknown, name: string, isRow: (row: unknown[]) => boolean): T[] {
-  if (!Array.isArray(value)) throw new InvalidBackupError(`The backup has no ${name}.`);
+type BackupPart = keyof Translations['backup']['part'];
+
+const missingPart = (part: BackupPart) =>
+  new InvalidBackupError(t('backup.missingPart', { part: t(`backup.part.${part}`) }));
+const damagedPart = (part: BackupPart) =>
+  new InvalidBackupError(t('backup.damagedPart', { part: t(`backup.part.${part}`) }));
+
+function checkRows<T>(value: unknown, name: BackupPart, isRow: (row: unknown[]) => boolean): T[] {
+  if (!Array.isArray(value)) throw missingPart(name);
   for (const row of value) {
-    if (!Array.isArray(row) || !isRow(row)) throw new InvalidBackupError(`The backup contains damaged ${name}.`);
+    if (!Array.isArray(row) || !isRow(row)) throw damagedPart(name);
   }
   return value as T[];
 }
@@ -235,33 +244,32 @@ export function parseBackup(text: string): Backup {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new InvalidBackupError('This file is not a TrueShuffle backup.');
+    throw new InvalidBackupError(t('backup.notABackup'));
   }
   if (!data || typeof data !== 'object' || data.app !== APP) {
-    throw new InvalidBackupError('This file is not a TrueShuffle backup.');
+    throw new InvalidBackupError(t('backup.notABackup'));
   }
   if (data.format !== FORMAT) {
-    throw new InvalidBackupError('This backup was made by a different version of TrueShuffle and cannot be read.');
+    throw new InvalidBackupError(t('backup.otherVersion'));
   }
-  if (!isString(data.exportedAt)) throw new InvalidBackupError('The backup is damaged.');
+  if (!isString(data.exportedAt)) throw new InvalidBackupError(t('backup.damaged'));
 
   const settings = data.settings ?? {};
   if (
     typeof settings !== 'object' ||
     Object.entries(settings as object).some(([k, v]) => !k.startsWith('filter_') || !isString(v))
   ) {
-    throw new InvalidBackupError('The backup contains damaged settings.');
+    throw damagedPart('settings');
   }
   if (
     !isString(data.imagePrefix) ||
     !isNullableString(data.lastSync ?? null) ||
     !isNullableString(data.playlistId ?? null)
   ) {
-    throw new InvalidBackupError('The backup is damaged.');
+    throw new InvalidBackupError(t('backup.damaged'));
   }
-  const ids = (value: unknown, name: string) => {
-    if (!Array.isArray(value) || !value.every(isString))
-      throw new InvalidBackupError(`The backup contains damaged ${name}.`);
+  const ids = (value: unknown, name: BackupPart) => {
+    if (!Array.isArray(value) || !value.every(isString)) throw damagedPart(name);
     return value as string[];
   };
 
@@ -289,7 +297,7 @@ export function parseBackup(text: string): Backup {
     ),
     artistAlbums: checkRows<ArtistAlbumRow>(
       data.artistAlbums,
-      'release links',
+      'releaseLinks',
       (r) => r.length === 2 && isString(r[0]) && isString(r[1]),
     ),
     tracks: checkRows<TrackRow>(
@@ -305,7 +313,7 @@ export function parseBackup(text: string): Backup {
         isInt(r[5]) &&
         isInt(r[6]),
     ),
-    excluded: ids(data.excluded ?? [], 'excluded artists'),
+    excluded: ids(data.excluded ?? [], 'excludedArtists'),
     queue: ids(data.queue ?? [], 'queue'),
     settings: settings as Record<string, string>,
     lastSync: (data.lastSync as string | null | undefined) ?? null,

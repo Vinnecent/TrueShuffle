@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState, type ComponentProps } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,6 +48,7 @@ const GAP = 8;
  * below it. Mount it to open; it calls onSettled and then onClose once its closing animation has finished.
  */
 export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose, onPopped }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { item, index, current, isPlaying, layout, artists } = target;
   const [pop] = useState(() => new Animated.Value(0));
@@ -129,7 +131,7 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
         onLayout={(e) => setScreenHeight(e.nativeEvent.layout.height)}
       >
         <Animated.View style={[StyleSheet.absoluteFill, menu.backdrop, { opacity: pop }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} accessibilityLabel="Close menu" />
+          <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} accessibilityLabel={t('queueMenu.close')} />
         </Animated.View>
 
         <Animated.View
@@ -168,15 +170,15 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
           >
             <MenuOption
               icon="remove-circle-outline"
-              label="Remove from queue"
+              label={t('queueMenu.remove')}
               onPress={() => choose(() => onRemove(item))}
             />
             {artists.map((artist) => (
               <MenuOption
                 key={artist.id}
                 icon="ban-outline"
-                label={`Exclude ${artist.name}`}
-                help="Leaves their songs out of the shuffle and removes them from this queue"
+                label={t('queueMenu.exclude', { name: artist.name })}
+                help={t('queueMenu.excludeHelp')}
                 danger
                 onPress={() => choose(() => onExclude(artist.id))}
               />

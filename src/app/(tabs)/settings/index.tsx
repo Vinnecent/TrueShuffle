@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -18,6 +19,7 @@ import {
 } from 'react-native';
 
 import {
+  describeBackgroundSyncStatus,
   getBackgroundSyncStatus,
   isBackgroundSyncAvailable,
   isBackgroundSyncEnabled,
@@ -33,6 +35,7 @@ import {
   summarizeBackup,
 } from '@/backup/backup';
 import { Button } from '@/components/ui';
+import { getLanguageSetting, i18n, LANGUAGES, setLanguageSetting, systemLanguage, type LanguageSetting } from '@/i18n';
 import { clearLibrary, getLibraryStats, type LibraryStats } from '@/db/queries';
 import { RateLimitError } from '@/spotify/api';
 import {
@@ -51,11 +54,12 @@ import {
   syncLibrary,
   type SyncProgress,
 } from '@/spotify/sync';
-import { colors, countLabel, formatRelativeDateTime } from '@/theme';
+import { colors, countLabel, formatNumber, formatRelativeDateTime } from '@/theme';
 
 const SPOTIFY_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
 
 export default function SettingsScreen() {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -125,7 +129,7 @@ export default function SettingsScreen() {
   };
 
   const sync = async () => {
-    setProgress({ phase: 'Starting', done: 0, total: 0 });
+    setProgress({ phase: 'starting', done: 0, total: 0 });
     try {
       await ensureLoggedInWithScopes();
       setConnected(true);
@@ -139,21 +143,24 @@ export default function SettingsScreen() {
         result = await syncLibrary(db, setProgress);
       }
       Alert.alert(
-        result.scanned === 0 ? 'Library is up to date' : 'Sync complete',
+        result.scanned === 0 ? t('settings.upToDateTitle') : t('settings.syncCompleteTitle'),
         result.scanned === 0
-          ? 'Every included artist was updated within the last hour.'
-          : `Updated ${countLabel(result.scanned, 'artist')}.\n\n` +
-              `${countLabel(result.artists, 'artist')} · ${countLabel(result.albums, 'release')} · ${countLabel(result.tracks, 'song')}`,
+          ? t('settings.upToDateText')
+          : `${t('settings.syncUpdated', { count: result.scanned })}\n\n` +
+              [
+                countLabel(result.artists, 'artist'),
+                countLabel(result.albums, 'release'),
+                countLabel(result.tracks, 'song'),
+              ].join(' · '),
       );
     } catch (e) {
-      const resumeHint =
-        '\n\nEverything synced so far is saved. Tap Sync again later and it continues with the artists it did not reach.';
+      const resumeHint = `\n\n${t('settings.resumeHint')}`;
       if (e instanceof SyncInProgressError) {
-        Alert.alert('Already syncing', 'The background sync is running right now. Try again in a few minutes.');
+        Alert.alert(t('settings.alreadySyncingTitle'), t('settings.alreadySyncingText'));
       } else if (e instanceof RateLimitError) {
-        Alert.alert('Spotify rate limit reached', e.message + resumeHint);
+        Alert.alert(t('settings.rateLimitTitle'), e.message + resumeHint);
       } else {
-        Alert.alert('Sync failed', (e as Error).message + resumeHint);
+        Alert.alert(t('settings.syncFailedTitle'), (e as Error).message + resumeHint);
       }
     } finally {
       setProgress(null);
@@ -172,7 +179,7 @@ export default function SettingsScreen() {
     try {
       await setBackgroundSyncEnabled(!background.enabled);
     } catch (e) {
-      Alert.alert('Could not change background sync', (e as Error).message);
+      Alert.alert(t('settings.backgroundToggleFailed'), (e as Error).message);
     } finally {
       setTogglingBackground(false);
       await refresh();
@@ -185,7 +192,7 @@ export default function SettingsScreen() {
       await clearLibrary(db);
       await Promise.all([Image.clearDiskCache(), Image.clearMemoryCache()]);
     } catch (e) {
-      Alert.alert('Could not clear the library', (e as Error).message);
+      Alert.alert(t('settings.clearFailed'), (e as Error).message);
     } finally {
       setClearing(false);
       await refresh();
@@ -199,20 +206,20 @@ export default function SettingsScreen() {
         await shareLibrary(db);
       } else {
         const name = await saveLibraryToFolder(db);
-        if (name) Alert.alert('Backup saved', `Saved as “${name}” in the folder you chose.`);
+        if (name) Alert.alert(t('settings.backupSavedTitle'), t('settings.backupSavedText', { name }));
       }
     } catch (e) {
-      Alert.alert('Could not export the library', (e as Error).message);
+      Alert.alert(t('settings.exportFailed'), (e as Error).message);
     } finally {
       setBackingUp(null);
     }
   };
 
   const exportBackup = () =>
-    Alert.alert('Export library', 'Save the backup file on this phone, or share it to another app or a cloud drive.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Share…', onPress: () => runExport('share') },
-      { text: 'Save to this phone', onPress: () => runExport('save') },
+    Alert.alert(t('settings.exportTitle'), t('settings.exportText'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('settings.exportShare'), onPress: () => runExport('share') },
+      { text: t('settings.exportSave'), onPress: () => runExport('save') },
     ]);
 
   const importBackup = async () => {
@@ -225,28 +232,38 @@ export default function SettingsScreen() {
         setBackingUp('import');
         try {
           await importLibrary(db, backup);
-          Alert.alert('Library imported', `${countLabel(summary.artists, 'artist')} · ${countLabel(summary.tracks, 'song')}`);
+          Alert.alert(
+            t('settings.importedTitle'),
+            `${countLabel(summary.artists, 'artist')} · ${countLabel(summary.tracks, 'song')}`,
+          );
         } catch (e) {
-          Alert.alert('Could not import the backup', `${(e as Error).message}\n\nYour library was not changed.`);
+          Alert.alert(
+            t('settings.importFailedTitle'),
+            `${(e as Error).message}\n\n${t('settings.importFailedUnchanged')}`,
+          );
         } finally {
           setBackingUp(null);
           await refresh();
         }
       };
       Alert.alert(
-        'Replace your library?',
-        `Backup from ${formatRelativeDateTime(summary.exportedAt)}: ${countLabel(summary.artists, 'artist')}, ` +
-          `${countLabel(summary.albums, 'release')}, ${countLabel(summary.tracks, 'song')}.\n\n` +
-          'Your current library, queue and shuffle settings on this phone are replaced. ' +
-          'Your Spotify credentials and login stay as they are.',
+        t('settings.replaceTitle'),
+        t('settings.replaceText', {
+          when: formatRelativeDateTime(summary.exportedAt),
+          contents: [
+            countLabel(summary.artists, 'artist'),
+            countLabel(summary.albums, 'release'),
+            countLabel(summary.tracks, 'song'),
+          ].join(', '),
+        }),
         [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Replace library', style: 'destructive', onPress: replace },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('settings.replaceConfirm'), style: 'destructive', onPress: replace },
         ],
       );
     } catch (e) {
       Alert.alert(
-        e instanceof InvalidBackupError ? 'Not a TrueShuffle backup' : 'Could not read the file',
+        e instanceof InvalidBackupError ? t('settings.notBackupTitle') : t('settings.readFailedTitle'),
         (e as Error).message,
       );
     } finally {
@@ -255,49 +272,45 @@ export default function SettingsScreen() {
   };
 
   const confirmClearLibrary = () =>
-    Alert.alert(
-      'Clear library?',
-      'This deletes all synced artists, releases and songs, the queue, the sync progress and the cached ' +
-        'artwork from this phone. Your Spotify login, credentials and the playlist in Spotify are kept.\n\n' +
-        'Syncing everything again can take several days because of Spotify’s limits.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Clear library', style: 'destructive', onPress: wipeLibrary },
-      ],
-    );
+    Alert.alert(t('settings.clearTitle'), t('settings.clearText'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('settings.clearLibrary'), style: 'destructive', onPress: wipeLibrary },
+    ]);
 
   if (!loaded) return <View style={screen.container} />;
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={screen.container} contentContainerStyle={screen.content} keyboardShouldPersistTaps="handled">
-        <Text style={screen.sectionTitle}>Spotify app credentials</Text>
+        <Text style={screen.sectionTitle}>{t('settings.credentialsTitle')}</Text>
         <Text style={screen.help}>
-          Create an app at{' '}
-          <Text
-            style={screen.link}
-            accessibilityRole="link"
-            onPress={() => Linking.openURL(SPOTIFY_DASHBOARD_URL)}
-          >
-            developer.spotify.com/dashboard
-          </Text>{' '}
-          (Web API), add the redirect URI below to it, and paste
-          its Client ID and Client Secret here. They are kept in secure device storage.
+          <Trans
+            i18nKey="settings.credentialsHelp"
+            components={{
+              dashboard: (
+                <Text
+                  style={screen.link}
+                  accessibilityRole="link"
+                  onPress={() => Linking.openURL(SPOTIFY_DASHBOARD_URL)}
+                />
+              ),
+            }}
+          />
         </Text>
 
         <CopyRedirectUri />
 
-        <Text style={screen.label}>Client ID</Text>
+        <Text style={screen.label}>{t('settings.clientId')}</Text>
         <TextInput
           value={clientId}
           onChangeText={setClientId}
           style={screen.input}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="e.g. 1a2b3c…"
+          placeholder={t('settings.clientIdPlaceholder')}
           placeholderTextColor={colors.textMuted}
         />
-        <Text style={screen.label}>Client Secret</Text>
+        <Text style={screen.label}>{t('settings.clientSecret')}</Text>
         <TextInput
           value={clientSecret}
           onChangeText={setClientSecret}
@@ -308,25 +321,29 @@ export default function SettingsScreen() {
           placeholder="••••••••"
           placeholderTextColor={colors.textMuted}
         />
-        <Button title="Save credentials" variant="secondary" onPress={save} disabled={!dirty || syncing} />
+        <Button title={t('settings.saveCredentials')} variant="secondary" onPress={save} disabled={!dirty || syncing} />
 
         {/* Everything else needs the Spotify app, so it only appears once its credentials are saved. */}
         {hasCreds && (
           <>
             <View style={screen.divider} />
 
-            <Text style={screen.sectionTitle}>Library</Text>
+            <Text style={screen.sectionTitle}>{t('settings.libraryTitle')}</Text>
             <Text style={screen.help}>
-              {connected ? 'Connected' : 'Not connected, syncing will ask you to log in'}
-              {stats ? ` · Last sync ${stats.lastSync ? formatRelativeDateTime(stats.lastSync) : 'never'}` : ''}
+              {connected ? t('settings.connected') : t('settings.notConnected')}
+              {stats
+                ? ` · ${t('settings.lastSync', {
+                    when: stats.lastSync ? formatRelativeDateTime(stats.lastSync) : t('settings.never'),
+                  })}`
+                : ''}
             </Text>
 
             {stats && (
               <>
                 <View style={screen.tiles}>
-                  <StatTile value={stats.artists} label="artists" />
-                  <StatTile value={stats.albums} label="releases" />
-                  <StatTile value={stats.tracks} label="songs" />
+                  <StatTile value={stats.artists} label={t('settings.tileArtists')} />
+                  <StatTile value={stats.albums} label={t('settings.tileReleases')} />
+                  <StatTile value={stats.tracks} label={t('settings.tileSongs')} />
                 </View>
 
                 <FreshnessBar stats={stats} />
@@ -336,15 +353,15 @@ export default function SettingsScreen() {
             <Button
               title={
                 rateLimitedUntil && !syncing
-                  ? `Sync available ${formatRelativeDateTime(rateLimitedUntil)}`
-                  : 'Sync library from Spotify'
+                  ? t('settings.syncAvailable', { when: formatRelativeDateTime(rateLimitedUntil) })
+                  : t('settings.sync')
               }
               onPress={sync}
               loading={syncing}
               disabled={dirty || syncing || clearing || rateLimitedUntil !== null}
             />
             {progress && <SyncStatus progress={progress} />}
-            {dirty && <Text style={screen.help}>Save your changed credentials first.</Text>}
+            {dirty && <Text style={screen.help}>{t('settings.saveChangedFirst')}</Text>}
 
             {background && (
               <Pressable
@@ -360,15 +377,16 @@ export default function SettingsScreen() {
                   color={background.enabled ? colors.accent : colors.textMuted}
                 />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={screen.checkTitle}>Background sync</Text>
+                  <Text style={screen.checkTitle}>{t('settings.backgroundTitle')}</Text>
                   <Text style={screen.help}>
-                    {background.available
-                      ? 'Updates your library about twice a day'
-                      : 'Background tasks are not available on this device.'}
+                    {background.available ? t('settings.backgroundHelp') : t('settings.backgroundUnavailable')}
                   </Text>
                   {background.status && (
                     <Text style={screen.help}>
-                      Last run {formatRelativeDateTime(background.status.at)} · {background.status.message}
+                      {t('settings.backgroundLastRun', {
+                        when: formatRelativeDateTime(background.status.at),
+                        status: describeBackgroundSyncStatus(background.status),
+                      })}
                     </Text>
                   )}
                 </View>
@@ -377,7 +395,7 @@ export default function SettingsScreen() {
                     onPress={explainBackgroundSync}
                     hitSlop={12}
                     accessibilityRole="button"
-                    accessibilityLabel="About background sync"
+                    accessibilityLabel={t('settings.backgroundAbout')}
                   >
                     <Ionicons name="information-circle-outline" size={22} color={colors.textMuted} />
                   </Pressable>
@@ -386,15 +404,12 @@ export default function SettingsScreen() {
             )}
 
             <View style={screen.divider} />
-            <Text style={screen.sectionTitle}>Backup</Text>
-            <Text style={screen.help}>
-              Move your synced library to another phone: export it to a file, then import that file there. Your Spotify
-              credentials and login are not included.
-            </Text>
+            <Text style={screen.sectionTitle}>{t('settings.backupTitle')}</Text>
+            <Text style={screen.help}>{t('settings.backupHelp')}</Text>
             <View style={screen.buttonRow}>
               <View style={{ flex: 1 }}>
                 <Button
-                  title="Export"
+                  title={t('settings.export')}
                   variant="secondary"
                   onPress={exportBackup}
                   loading={backingUp === 'export'}
@@ -403,7 +418,7 @@ export default function SettingsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Button
-                  title="Import"
+                  title={t('settings.import')}
                   variant="secondary"
                   onPress={importBackup}
                   loading={backingUp === 'import'}
@@ -415,16 +430,14 @@ export default function SettingsScreen() {
             {(connected || hasLibrary) && (
               <>
                 <View style={screen.divider} />
-                <Text style={screen.sectionTitle}>Reset</Text>
-                <Text style={screen.help}>
-                  Log out of Spotify, or delete everything synced to this phone. Your credentials and filters are kept.
-                </Text>
+                <Text style={screen.sectionTitle}>{t('settings.resetTitle')}</Text>
+                <Text style={screen.help}>{t('settings.resetHelp')}</Text>
                 {connected && (
-                  <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
+                  <Button title={t('settings.disconnect')} variant="danger" onPress={disconnect} disabled={syncing} />
                 )}
                 {hasLibrary && (
                   <Button
-                    title="Clear library"
+                    title={t('settings.clearLibrary')}
                     variant="danger"
                     onPress={confirmClearLibrary}
                     loading={clearing}
@@ -435,25 +448,69 @@ export default function SettingsScreen() {
             )}
           </>
         )}
+
+        <View style={screen.divider} />
+        <LanguagePicker />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const explainBackgroundSync = () =>
-  Alert.alert(
-    'Background sync',
-    'While the app is closed, Android runs the sync about twice a day, usually while the phone is idle or ' +
-      'charging; it decides the exact time. Each run updates the artists not checked for a week, oldest first ' +
-      '(artists never scanned go first), for a few minutes. Runs with nothing to do, or during a wait Spotify ' +
-      'asked for, end without contacting Spotify.',
+  Alert.alert(i18n.t('settings.backgroundTitle'), i18n.t('settings.backgroundExplain'));
+
+/** Language of the app's texts: the phone's language (default) or a fixed one. */
+function LanguagePicker() {
+  const { t } = useTranslation();
+  const [setting, setSetting] = useState<LanguageSetting>(getLanguageSetting);
+  const systemName = LANGUAGES.find((l) => l.code === systemLanguage())?.name ?? 'English';
+  const options: { key: LanguageSetting; label: string }[] = [
+    { key: 'system', label: t('settings.languageSystem') },
+    ...LANGUAGES.map((l) => ({ key: l.code, label: l.name })),
+  ];
+
+  const choose = async (next: LanguageSetting) => {
+    setSetting(next);
+    await setLanguageSetting(next);
+  };
+
+  return (
+    <>
+      <Text style={screen.sectionTitle}>{t('settings.languageTitle')}</Text>
+      <View style={screen.segments} accessibilityRole="radiogroup">
+        {options.map(({ key, label }) => {
+          const selected = setting === key;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => choose(key)}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected }}
+              style={({ pressed }) => [
+                screen.segment,
+                selected && screen.segmentSelected,
+                pressed && !selected && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={[screen.segmentText, selected && screen.segmentTextSelected]} numberOfLines={1}>
+                {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {setting === 'system' && (
+        <Text style={screen.help}>{t('settings.languageSystemHelp', { language: systemName })}</Text>
+      )}
+    </>
   );
+}
 
 function StatTile({ value, label }: { value: number; label: string }) {
   return (
     <View style={screen.tile}>
       <Text style={screen.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-        {value.toLocaleString()}
+        {formatNumber(value)}
       </Text>
       <Text style={screen.tileLabel}>{label}</Text>
     </View>
@@ -462,21 +519,22 @@ function StatTile({ value, label }: { value: number; label: string }) {
 
 /** "Up to date" bar: included artists scanned within the last week, plus what is still missing. */
 function FreshnessBar({ stats }: { stats: LibraryStats }) {
+  const { t } = useTranslation();
   const included = stats.artists - stats.excludedArtists;
   const fraction = included > 0 ? stats.freshArtists / included : 0;
   const details = [
-    stats.unscannedArtists > 0 ? `${stats.unscannedArtists} not scanned yet` : null,
-    stats.excludedArtists > 0 ? `${stats.excludedArtists} excluded` : null,
+    stats.unscannedArtists > 0 ? t('settings.notScannedYet', { count: stats.unscannedArtists }) : null,
+    stats.excludedArtists > 0 ? t('settings.excluded', { count: stats.excludedArtists }) : null,
   ].filter(Boolean);
   return (
     <View style={{ gap: 6 }}>
       <View style={screen.freshRow}>
-        <Text style={screen.freshLabel}>Up to date</Text>
+        <Text style={screen.freshLabel}>{t('settings.upToDate')}</Text>
         <View style={[screen.progressTrack, { flex: 1 }]}>
           <View style={[screen.progressFill, { width: `${Math.round(fraction * 100)}%` }]} />
         </View>
         <Text style={screen.freshCount}>
-          {stats.freshArtists.toLocaleString()} / {included.toLocaleString()}
+          {formatNumber(stats.freshArtists)} / {formatNumber(included)}
         </Text>
       </View>
       {details.length > 0 && <Text style={screen.help}>{details.join(' · ')}</Text>}
@@ -485,11 +543,12 @@ function FreshnessBar({ stats }: { stats: LibraryStats }) {
 }
 
 function SyncStatus({ progress }: { progress: SyncProgress }) {
+  const { t } = useTranslation();
   const fraction = progress.total ? progress.done / progress.total : 0;
   return (
     <View style={screen.status}>
       <Text style={screen.statusText}>
-        {progress.phase}
+        {t(`settings.phase.${progress.phase}`)}
         {progress.total ? ` ${progress.done}/${progress.total}` : '…'}
         {progress.tracks !== undefined ? ` · ${countLabel(progress.tracks, 'song')}` : ''}
       </Text>
@@ -498,13 +557,18 @@ function SyncStatus({ progress }: { progress: SyncProgress }) {
           <View style={[screen.progressFill, { width: `${Math.round(fraction * 100)}%` }]} />
         </View>
       )}
-      {progress.note && <Text style={screen.statusNote}>{progress.note}</Text>}
+      {progress.rateLimitWaitSeconds !== undefined && (
+        <Text style={screen.statusNote}>
+          {t('settings.rateLimitWait', { seconds: Math.ceil(progress.rateLimitWaitSeconds) })}
+        </Text>
+      )}
     </View>
   );
 }
 
 /** The whole box is one button: long-press copies the redirect URI to the clipboard. */
 function CopyRedirectUri() {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -521,13 +585,13 @@ function CopyRedirectUri() {
     <Pressable
       onLongPress={copy}
       accessibilityRole="button"
-      accessibilityLabel={`Redirect URI ${REDIRECT_URI}`}
-      accessibilityHint="Long-press to copy to the clipboard"
+      accessibilityLabel={t('settings.redirectUriLabel', { uri: REDIRECT_URI })}
+      accessibilityHint={t('settings.redirectUriHint')}
       style={({ pressed }) => [screen.redirect, pressed && screen.redirectPressed]}
     >
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={[screen.label, copied && { color: colors.accent }]}>
-          {copied ? 'Copied to clipboard' : 'Redirect URI · long-press to copy'}
+          {copied ? t('settings.copied') : t('settings.redirectUri')}
         </Text>
         <Text style={screen.mono}>{REDIRECT_URI}</Text>
       </View>
@@ -594,6 +658,11 @@ const screen = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 4 },
   tiles: { flexDirection: 'row', gap: 8 },
   buttonRow: { flexDirection: 'row', gap: 12 },
+  segments: { flexDirection: 'row', padding: 3, borderRadius: 10, backgroundColor: colors.surfaceRaised },
+  segment: { flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4, borderRadius: 8 },
+  segmentSelected: { backgroundColor: colors.accent },
+  segmentText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+  segmentTextSelected: { color: colors.accentText },
   tile: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 8, backgroundColor: colors.surface },
   tileValue: { color: colors.text, fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'] },
   tileLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },

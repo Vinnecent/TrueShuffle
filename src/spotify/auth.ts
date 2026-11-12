@@ -1,6 +1,8 @@
 import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 
+import { t } from '@/i18n';
+
 const KEYS = {
   clientId: 'spotify_client_id',
   clientSecret: 'spotify_client_secret',
@@ -30,7 +32,7 @@ export const SCOPES = [
 export const REDIRECT_URI = AuthSession.makeRedirectUri({ scheme: 'trueshuffle', path: 'callback' });
 
 export class NotAuthenticatedError extends Error {
-  constructor(message = 'Not connected to Spotify.') {
+  constructor(message = t('errors.notConnected')) {
     super(message);
     this.name = 'NotAuthenticatedError';
   }
@@ -118,7 +120,9 @@ async function tokenRequest(params: Record<string, string>, creds: Credentials):
   });
   const body = (await res.json().catch(() => ({}))) as TokenResponse;
   if (!res.ok || !body.access_token) {
-    throw new Error(`Spotify token request failed: ${body.error_description ?? body.error ?? res.status}`);
+    throw new Error(
+      t('errors.tokenRequestFailed', { message: String(body.error_description ?? body.error ?? res.status) }),
+    );
   }
   return body;
 }
@@ -142,7 +146,7 @@ export async function ensureLoggedInWithScopes(): Promise<void> {
 export async function login(): Promise<void> {
   const creds = await getCredentials();
   if (!creds.clientId || !creds.clientSecret) {
-    throw new Error('Enter and save your Client ID and Client Secret first.');
+    throw new Error(t('errors.credentialsMissing'));
   }
 
   const request = new AuthSession.AuthRequest({
@@ -155,9 +159,9 @@ export async function login(): Promise<void> {
   const result = await request.promptAsync(discovery);
 
   if (result.type === 'error') {
-    throw new Error(result.error?.message ?? result.params.error ?? 'Spotify login failed.');
+    throw new Error(result.error?.message ?? result.params.error ?? t('errors.loginFailed'));
   }
-  if (result.type !== 'success') throw new Error('Spotify login was cancelled.');
+  if (result.type !== 'success') throw new Error(t('errors.loginCancelled'));
 
   const res = await tokenRequest(
     { grant_type: 'authorization_code', code: result.params.code, redirect_uri: REDIRECT_URI },
@@ -189,9 +193,7 @@ async function refresh(tokens: StoredTokens): Promise<StoredTokens> {
       return await writeTokens(res, tokens);
     } catch (e) {
       await logout();
-      throw new NotAuthenticatedError(
-        `Spotify session expired, please sync again to log in. (${(e as Error).message})`,
-      );
+      throw new NotAuthenticatedError(t('errors.sessionExpired', { message: (e as Error).message }));
     } finally {
       refreshInFlight = null;
     }

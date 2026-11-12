@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { activeFilterCount, FilterSheet } from '@/components/FilterSheet';
@@ -42,6 +43,7 @@ import { colors } from '@/theme';
 const SCROLL_INTO_VIEW_MS = 300;
 
 export default function QueueScreen() {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
   const router = useRouter();
   const [queue, setQueue] = useState<QueueRow[]>([]);
@@ -110,9 +112,9 @@ export default function QueueScreen() {
     try {
       await playSpotifyPlaylist(playlistId);
     } catch (e) {
-      Alert.alert('Could not start playback', describePlaybackError(e), [
-        { text: 'Close', style: 'cancel' },
-        { text: 'Open in Spotify', onPress: () => openPlaylistInSpotify(playlistId) },
+      Alert.alert(t('queue.playbackFailedTitle'), describePlaybackError(e), [
+        { text: t('common.close'), style: 'cancel' },
+        { text: t('common.openInSpotify'), onPress: () => openPlaylistInSpotify(playlistId) },
       ]);
     }
   };
@@ -123,24 +125,19 @@ export default function QueueScreen() {
       // Asks for a (re-)login if the stored one predates the playlist permissions.
       await ensureLoggedInWithScopes();
       const playlistId = await sendToSpotifyPlaylist(queueUris);
-      Alert.alert(
-        'Playlist updated',
-        `Your "TrueShuffle" playlist in Spotify now holds ${queue.length === 1 ? 'this song' : `these ${queue.length} songs`}. ` +
-          'Play it with Spotify’s shuffle turned off to keep this order.',
-        [
-          { text: 'Done', style: 'cancel' },
-          { text: 'Open in Spotify', onPress: () => openPlaylistInSpotify(playlistId) },
-          { text: 'Play now', onPress: () => play(playlistId) },
-        ],
-      );
+      Alert.alert(t('queue.playlistUpdatedTitle'), t('queue.playlistUpdatedText', { count: queue.length }), [
+        { text: t('common.done'), style: 'cancel' },
+        { text: t('common.openInSpotify'), onPress: () => openPlaylistInSpotify(playlistId) },
+        { text: t('queue.playNow'), onPress: () => play(playlistId) },
+      ]);
     } catch (e) {
       if (e instanceof NotAuthenticatedError) {
-        Alert.alert('Not connected', 'Connect your Spotify account on the Settings tab first.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => router.navigate('/settings') },
+        Alert.alert(t('queue.notConnectedTitle'), t('queue.notConnectedText'), [
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('queue.openSettings'), onPress: () => router.navigate('/settings') },
         ]);
       } else {
-        Alert.alert('Could not update the Spotify playlist', describePlaybackError(e));
+        Alert.alert(t('queue.sendFailedTitle'), describePlaybackError(e));
       }
     } finally {
       setSending(false);
@@ -194,9 +191,9 @@ export default function QueueScreen() {
   if (libraryTracks === 0) {
     return (
       <View style={screen.container}>
-        <EmptyState title="Your library is empty">
-          <Text style={ui.muted}>Add your Spotify Client ID and Secret, then sync your followed artists.</Text>
-          <Button title="Go to Settings" onPress={() => router.navigate('/settings')} />
+        <EmptyState title={t('queue.emptyLibraryTitle')}>
+          <Text style={ui.muted}>{t('queue.emptyLibraryText')}</Text>
+          <Button title={t('common.goToSettings')} onPress={() => router.navigate('/settings')} />
         </EmptyState>
       </View>
     );
@@ -208,12 +205,12 @@ export default function QueueScreen() {
         <NowPlaying state={nowPlaying} queueUris={queueUris} />
         <View style={screen.summaryRow}>
           <Text style={screen.summary}>
-            {queue.length} / {MAX_QUEUE_SIZE} songs · drawn from {shuffleTracks.toLocaleString()}
+            {t('queue.summary', { queued: queue.length, max: MAX_QUEUE_SIZE, eligible: shuffleTracks })}
           </Text>
           <Pressable
             onPress={() => setFiltersOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel={`Filters, ${activeFilters} on`}
+            accessibilityLabel={t('queue.filtersLabel', { count: activeFilters })}
             style={({ pressed }) => [
               screen.filterButton,
               activeFilters > 0 && screen.filterButtonOn,
@@ -222,14 +219,14 @@ export default function QueueScreen() {
           >
             <Ionicons name="options-outline" size={16} color={activeFilters > 0 ? colors.accent : colors.textMuted} />
             <Text style={[screen.filterButtonText, activeFilters > 0 && { color: colors.text }]}>
-              Filters{activeFilters > 0 ? ` · ${activeFilters}` : ''}
+              {activeFilters > 0 ? t('queue.filtersCount', { count: activeFilters }) : t('queue.filters')}
             </Text>
           </Pressable>
         </View>
         <View style={screen.actions}>
           <View style={{ flex: 1 }}>
             <Button
-              title="Shuffle"
+              title={t('queue.shuffle')}
               variant="secondary"
               onPress={shuffle}
               loading={shuffling}
@@ -238,7 +235,7 @@ export default function QueueScreen() {
           </View>
           <View style={{ flex: 1 }}>
             <Button
-              title="Send to Spotify"
+              title={t('queue.sendToSpotify')}
               onPress={send}
               loading={sending}
               disabled={queue.length === 0 || shuffling}
@@ -266,15 +263,12 @@ export default function QueueScreen() {
           contentContainerStyle={{ flexGrow: 1 }}
           ListEmptyComponent={
             shuffleTracks === 0 ? (
-              <EmptyState title="Nothing left to shuffle">
-                <Text style={ui.muted}>
-                  Every song is excluded by an artist exclusion or a filter. Turn a filter off, or include an artist
-                  again on the Artists tab.
-                </Text>
+              <EmptyState title={t('queue.nothingLeftTitle')}>
+                <Text style={ui.muted}>{t('queue.nothingLeftText')}</Text>
               </EmptyState>
             ) : (
-              <EmptyState title="No songs queued">
-                <Text style={ui.muted}>Tap Shuffle to draw {MAX_QUEUE_SIZE} random songs from your library.</Text>
+              <EmptyState title={t('queue.noSongsTitle')}>
+                <Text style={ui.muted}>{t('queue.noSongsText', { count: MAX_QUEUE_SIZE })}</Text>
               </EmptyState>
             )
           }

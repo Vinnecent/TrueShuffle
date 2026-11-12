@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getMeta, setMeta } from '@/db/queries';
+import { t } from '@/i18n';
 import {
   getAlbumTracks,
   RateLimitError,
@@ -14,13 +15,14 @@ import {
 } from './api';
 
 export type SyncProgress = {
-  phase: string;
+  /** What the sync is doing; Settings shows it as `settings.phase.<phase>`. */
+  phase: 'starting' | 'fetchingArtists' | 'syncingArtists' | 'cleaningUp';
   done: number;
   total: number;
   /** Songs stored so far. */
   tracks?: number;
-  /** Extra status, e.g. a rate-limit wait. */
-  note?: string;
+  /** Set while waiting for Spotify's rate limit: the wait in seconds. */
+  rateLimitWaitSeconds?: number;
 };
 
 export type SyncResult = {
@@ -55,7 +57,7 @@ export const MANUAL_RESCAN_AFTER_MS = 60 * 60_000;
 /** Thrown when a sync is started while another one (foreground or background) is still running. */
 export class SyncInProgressError extends Error {
   constructor() {
-    super('A sync is already running.');
+    super(t('errors.syncRunning'));
     this.name = 'SyncInProgressError';
   }
 }
@@ -138,14 +140,12 @@ export async function syncLibrary(
   if (running) throw new SyncInProgressError();
   running = true;
   const withLock = createWriteLock();
-  let last: SyncProgress = { phase: 'Fetching followed artists', done: 0, total: 0 };
+  let last: SyncProgress = { phase: 'fetchingArtists', done: 0, total: 0 };
   const report = (p: Partial<SyncProgress>) => {
-    last = { ...last, note: undefined, ...p };
+    last = { ...last, rateLimitWaitSeconds: undefined, ...p };
     onProgress(last);
   };
-  setRateLimitListener((seconds) =>
-    onProgress({ ...last, note: `Spotify rate limit, waiting ${Math.ceil(seconds)}s…` }),
-  );
+  setRateLimitListener((seconds) => onProgress({ ...last, rateLimitWaitSeconds: seconds }));
 
   // Set as soon as anything was saved, so an interrupted (partial) sync still counts as the last sync.
   let savedAnything = false;
@@ -154,7 +154,7 @@ export async function syncLibrary(
     await db.runAsync(`DELETE FROM meta WHERE key IN (${placeholders})`, OBSOLETE_META_KEYS);
 
     // 1. Followed artists (cheap: 50 per request) — saved right away; unfollowed artists are removed.
-    report({ phase: 'Fetching followed artists' });
+    report({ phase: 'fetchingArtists' });
     const artists = await getFollowedArtists();
     await withLock(() => saveArtists(db, artists));
     savedAnything = true;
@@ -170,7 +170,7 @@ export async function syncLibrary(
     );
     let done = 0;
     let tracks = await countTracks(db);
-    report({ phase: 'Syncing artists', done, total: due.length, tracks });
+    report({ phase: 'syncingArtists', done, total: due.length, tracks });
 
     await runPool(due, CONCURRENCY, async (artist) => {
       const albums = await getArtistAlbums(artist.id);
@@ -192,7 +192,7 @@ export async function syncLibrary(
 
     // 3. Drop releases no followed artist lists any more (an artist's list is replaced whenever it is
     //    scanned, so this is correct after any run). Cascades remove their songs and queue entries.
-    report({ phase: 'Cleaning up', done: 0, total: 0 });
+    report({ phase: 'cleaningUp', done: 0, total: 0 });
     await withLock(() => db.execAsync('DELETE FROM albums WHERE id NOT IN (SELECT album_id FROM artist_albums)'));
 
     const totals = await db.getFirstAsync<{ albums: number; tracks: number }>(

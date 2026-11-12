@@ -50,7 +50,8 @@
         }
       ],
       "expo-sharing",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-localization"
     ],
     "scheme": "trueshuffle",
     "experiments": {

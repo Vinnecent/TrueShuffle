@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRef, type ComponentRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Artwork } from '@/components/ui';
@@ -24,6 +25,7 @@ type Props = {
 
 /** One song in the queue list. */
 export function QueueItem({ item, index, current, isPlaying, onLongPress, style, onCoverShown }: Props) {
+  const { t } = useTranslation();
   const ref = useRef<ComponentRef<typeof Pressable>>(null);
 
   const longPress = onLongPress
@@ -42,7 +44,7 @@ export function QueueItem({ item, index, current, isPlaying, onLongPress, style,
         style,
       ]}
       accessibilityState={current ? { selected: true } : undefined}
-      accessibilityHint={current ? (isPlaying ? 'Playing in Spotify' : 'Paused in Spotify') : undefined}
+      accessibilityHint={current ? (isPlaying ? t('queue.playingInSpotify') : t('queue.pausedInSpotify')) : undefined}
     >
       {current ? (
         <View style={row.indexIcon}>

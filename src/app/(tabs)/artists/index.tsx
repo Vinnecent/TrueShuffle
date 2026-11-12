@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
@@ -19,6 +20,7 @@ const getItemLayout = (_: ArrayLike<ArtistRow> | null | undefined, index: number
 });
 
 export default function ArtistsScreen() {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
   const router = useRouter();
   const [artists, setArtists] = useState<ArtistRow[] | null>(null);
@@ -42,9 +44,9 @@ export default function ArtistsScreen() {
   if (artists.length === 0) {
     return (
       <View style={screen.container}>
-        <EmptyState title="No artists yet">
-          <Text style={ui.muted}>Add your Spotify Client ID and Secret, then sync your followed artists.</Text>
-          <Button title="Go to Settings" onPress={() => router.navigate('/settings')} />
+        <EmptyState title={t('artists.emptyTitle')}>
+          <Text style={ui.muted}>{t('artists.emptyText')}</Text>
+          <Button title={t('common.goToSettings')} onPress={() => router.navigate('/settings')} />
         </EmptyState>
       </View>
     );
@@ -58,8 +60,8 @@ export default function ArtistsScreen() {
           onChangeText={setFilter}
           placeholder={
             onlyExcluded
-              ? `Search ${countLabel(excludedCount, 'excluded artist')}`
-              : `Search ${countLabel(artists.length, 'artist')}`
+              ? t('artists.search', { what: countLabel(excludedCount, 'excludedArtist') })
+              : t('artists.search', { what: countLabel(artists.length, 'artist') })
           }
           placeholderTextColor={colors.textMuted}
           style={screen.search}
@@ -70,7 +72,7 @@ export default function ArtistsScreen() {
           onPress={() => setOnlyExcluded((on) => !on)}
           accessibilityRole="switch"
           accessibilityState={{ checked: onlyExcluded }}
-          accessibilityLabel={`Show only excluded artists, ${excludedCount}`}
+          accessibilityLabel={t('artists.excludedButtonLabel', { count: excludedCount })}
           style={({ pressed }) => [
             screen.excludedButton,
             onlyExcluded && screen.excludedButtonOn,
@@ -79,7 +81,7 @@ export default function ArtistsScreen() {
         >
           <Ionicons name="ban-outline" size={16} color={onlyExcluded ? colors.accent : colors.textMuted} />
           <Text style={[screen.excludedButtonText, onlyExcluded && { color: colors.text }]}>
-            Excluded · {excludedCount}
+            {t('artists.excludedButton', { count: excludedCount })}
           </Text>
         </Pressable>
       </View>
@@ -91,11 +93,11 @@ export default function ArtistsScreen() {
         contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={
           onlyExcluded && excludedCount === 0 ? (
-            <EmptyState title="No excluded artists">
-              <Text style={ui.muted}>Exclude an artist from their page, or by long-pressing a song in the queue.</Text>
+            <EmptyState title={t('artists.noExcludedTitle')}>
+              <Text style={ui.muted}>{t('artists.noExcludedText')}</Text>
             </EmptyState>
           ) : (
-            <EmptyState title="No matching artists" />
+            <EmptyState title={t('artists.noMatches')} />
           )
         }
         renderItem={({ item }) => (
@@ -110,7 +112,7 @@ export default function ArtistsScreen() {
               </Text>
               <Text style={screen.meta} numberOfLines={1}>
                 {countLabel(item.album_count, 'release')} · {countLabel(item.track_count, 'song')}
-                {item.excluded ? ' · Excluded from shuffle' : ''}
+                {item.excluded ? ` · ${t('artists.excludedFromShuffle')}` : ''}
               </Text>
             </View>
           </Pressable>

@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs, type BottomTabBarButtonProps } from 'expo-router/js-tabs';
 import { PlatformPressable } from 'expo-router/react-navigation';
+import { useTranslation } from 'react-i18next';
 
 import { colors } from '@/theme';
 
@@ -19,6 +20,7 @@ function TabBarButton(props: BottomTabBarButtonProps) {
 }
 
 export default function TabLayout() {
+  const { t } = useTranslation();
   return (
     <Tabs
       screenOptions={{
@@ -34,14 +36,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="(queue)"
         options={{
-          title: 'Queue',
+          title: t('tabs.queue'),
           tabBarIcon: ({ color, size }) => <Ionicons name="shuffle" color={color as string} size={size} />,
         }}
       />
       <Tabs.Screen
         name="artists"
         options={{
-          title: 'Artists',
+          title: t('tabs.artists'),
           // Leaving the tab closes an open artist page, so coming back shows the artist list.
           popToTopOnBlur: true,
           tabBarIcon: ({ color, size }) => <Ionicons name="people" color={color as string} size={size} />,
@@ -50,7 +52,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
+          title: t('tabs.settings'),
           tabBarIcon: ({ color, size }) => <Ionicons name="settings-sharp" color={color as string} size={size} />,
         }}
       />

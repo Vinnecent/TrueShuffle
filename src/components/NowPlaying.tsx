@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Artwork } from '@/components/ui';
@@ -25,6 +26,7 @@ type Props = {
 
 /** "Now playing" card for the song the Spotify app plays. Renders nothing when that is unknown. */
 export function NowPlaying({ state, queueUris }: Props) {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
   const [lookup, setLookup] = useState<{ uri: string; row: StoredTrack | null } | null>(null);
 
@@ -58,21 +60,23 @@ export function NowPlaying({ state, queueUris }: Props) {
         <Artwork uri={stored?.image_url ?? null} size={48} />
         <View style={{ flex: 1 }}>
           <Text style={[card.label, !playing && { color: colors.textMuted }]}>
-            {playing ? 'Now playing' : 'Paused'}
+            {playing ? t('nowPlaying.playing') : t('nowPlaying.paused')}
           </Text>
           <Text style={card.title} numberOfLines={1}>
             {state.title}
           </Text>
           <Text style={card.artist} numberOfLines={1}>
             {state.artist}
-            {queueIndex >= 0 ? ` · Song ${queueIndex + 1} of ${queueUris.length} in your queue` : ''}
+            {queueIndex >= 0
+              ? ` · ${t('nowPlaying.queuePosition', { position: queueIndex + 1, total: queueUris.length })}`
+              : ''}
           </Text>
         </View>
         <Ionicons
           name={playing ? 'volume-high' : 'pause'}
           size={22}
           color={playing ? colors.accent : colors.textMuted}
-          accessibilityLabel={playing ? 'Playing' : 'Paused'}
+          accessibilityLabel={playing ? t('nowPlaying.playingLabel') : t('nowPlaying.paused')}
         />
       </View>
       {durationMs ? (

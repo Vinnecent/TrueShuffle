@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork, EmptyState } from '@/components/ui';
@@ -15,9 +16,16 @@ import {
 } from '@/db/queries';
 import { colors, countLabel, formatDuration } from '@/theme';
 
-const TYPE_LABEL: Record<string, string> = { album: 'Album', single: 'Single / EP', compilation: 'Compilation' };
+const TYPE_LABEL = {
+  album: 'artist.typeAlbum',
+  single: 'artist.typeSingle',
+  compilation: 'artist.typeCompilation',
+} as const;
+
+const isKnownType = (type: string): type is keyof typeof TYPE_LABEL => type in TYPE_LABEL;
 
 export default function ArtistDetailScreen() {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useSQLiteContext();
   const router = useRouter();
@@ -31,14 +39,14 @@ export default function ArtistDetailScreen() {
     (async () => {
       const [artist, discography] = await Promise.all([getArtist(db, id), getArtistDiscography(db, id)]);
       if (cancelled) return;
-      setName(artist?.name ?? 'Unknown artist');
+      setName(artist?.name ?? t('artist.unknown'));
       setExcluded(artist?.excluded ?? false);
       setAlbums(discography);
     })();
     return () => {
       cancelled = true;
     };
-  }, [db, id]);
+  }, [db, id, t]);
 
   const toggleExcluded = async () => {
     if (excluded === null) return;
@@ -58,12 +66,12 @@ export default function ArtistDetailScreen() {
       const filters = await getShuffleFilters(db);
       const count = await generateShuffledQueue(db, filters, { artistId: id });
       if (count === 0) {
-        Alert.alert('Nothing to shuffle', 'Your filters on the Queue tab remove every song by this artist.');
+        Alert.alert(t('artist.nothingToShuffleTitle'), t('artist.nothingToShuffleText'));
         return;
       }
       router.navigate('/');
     } catch (e) {
-      Alert.alert('Could not shuffle', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('artist.shuffleFailedTitle'), e instanceof Error ? e.message : String(e));
     } finally {
       setShuffling(false);
     }
@@ -95,10 +103,8 @@ export default function ArtistDetailScreen() {
                   color={excluded ? colors.accent : colors.textMuted}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={screen.excludeTitle}>Exclude from shuffle</Text>
-                  <Text style={screen.excludeHelp}>
-                    Songs from releases shared with another artist you follow can still be picked.
-                  </Text>
+                  <Text style={screen.excludeTitle}>{t('artist.exclude')}</Text>
+                  <Text style={screen.excludeHelp}>{t('artist.excludeHelp')}</Text>
                 </View>
               </Pressable>
               {hasSongs && (
@@ -106,7 +112,7 @@ export default function ArtistDetailScreen() {
                   onPress={shuffleArtist}
                   disabled={shuffling}
                   accessibilityRole="button"
-                  accessibilityLabel={`Shuffle songs by ${name}`}
+                  accessibilityLabel={t('artist.shuffleLabel', { name })}
                   style={({ pressed }) => [screen.shuffle, pressed && screen.shufflePressed]}
                 >
                   {shuffling ? (
@@ -119,7 +125,7 @@ export default function ArtistDetailScreen() {
             </View>
           )
         }
-        ListEmptyComponent={albums ? <EmptyState title="No releases stored for this artist" /> : undefined}
+        ListEmptyComponent={albums ? <EmptyState title={t('artist.noReleases')} /> : undefined}
         renderSectionHeader={({ section: { album } }) => (
           <View style={screen.albumHeader}>
             <Artwork uri={album.image_url} size={64} />
@@ -128,8 +134,8 @@ export default function ArtistDetailScreen() {
                 {album.name}
               </Text>
               <Text style={screen.albumMeta}>
-                {TYPE_LABEL[album.album_type] ?? album.album_type} · {album.release_date?.slice(0, 4) ?? '—'} ·{' '}
-                {countLabel(album.tracks.length, 'song')}
+                {isKnownType(album.album_type) ? t(TYPE_LABEL[album.album_type]) : album.album_type} ·{' '}
+                {album.release_date?.slice(0, 4) ?? '—'} · {countLabel(album.tracks.length, 'song')}
               </Text>
             </View>
           </View>
