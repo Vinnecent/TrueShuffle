@@ -292,7 +292,7 @@ export default function QueueScreen() {
               isPlaying={isPlaying}
               onLongPress={(layout) => openMenu(item, index, layout)}
               // The menu shows a popped-out copy of the row; hide the original meanwhile.
-              style={hiddenPosition === item.position && { opacity: 0 }}
+              hidden={hiddenPosition === item.position}
             />
           )}
         />

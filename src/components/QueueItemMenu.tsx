@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, BackHandler, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Overlay } from '@/components/Overlay';
 import { QueueItem, type RowLayout } from '@/components/QueueItem';
 import type { QueueRow } from '@/db/queries';
 import { colors } from '@/theme';
@@ -23,7 +24,7 @@ type Props = {
   target: QueueMenuTarget;
   onRemove: (item: QueueRow) => void;
   onExclude: (artistId: string) => void;
-  /** The popped-out copy is back over the original row: show the original again (the copy still covers it). */
+  /** The popped-out copy is back over the original row: show the original again. */
   onSettled: () => void;
   onClose: () => void;
   /** The popped-out copy is on screen with its cover: hide the original row now. */
@@ -34,10 +35,10 @@ type Props = {
 const COVER_TIMEOUT_MS = 300;
 
 /**
- * How long the copy stays over the original row after onSettled, before the menu closes. Android shows
- * the closed dialog and the list's next frame at slightly different times; this keeps the row from blinking.
+ * Closing animations. The menu takes all touches until it is gone (so nothing moves under the flying row),
+ * which makes these the time the list cannot be dragged after closing: keep them short.
  */
-const HANDOVER_MS = 100;
+const CLOSE_MS = 150;
 
 /** Space kept between the menu and the screen edges. */
 const EDGE = 16;
@@ -46,6 +47,8 @@ const GAP = 8;
 /**
  * Context menu for a queued song: the row pops out of the list over a dimmed screen, with its actions
  * below it. Mount it to open; it calls onSettled and then onClose once its closing animation has finished.
+ * Drawn in the app's overlay layer (same window as the list, not a Modal), so the list is usable again in the
+ * frame the menu goes.
  */
 export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose, onPopped }: Props) {
   const { t } = useTranslation();
@@ -88,12 +91,16 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
   const dismiss = () => {
     if (closing) return;
     setClosing(true);
-    Animated.timing(pop, { toValue: 0, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(
-      () => {
-        onSettled();
-        setTimeout(onClose, HANDOVER_MS);
-      },
-    );
+    Animated.timing(pop, {
+      toValue: 0,
+      duration: CLOSE_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => {
+      // Same window as the list, so revealing the original row and removing the copy land in one frame.
+      onSettled();
+      onClose();
+    });
   };
 
   /** Runs an action and fades the whole menu out (the row may be gone from the list by then). */
@@ -101,11 +108,20 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
     if (closing) return;
     setClosing(true);
     action();
-    Animated.timing(fade, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
+    Animated.timing(fade, { toValue: 0, duration: CLOSE_MS, useNativeDriver: true }).start(() => {
       onSettled();
       onClose();
     });
   };
+
+  // Android back button closes the menu, like tapping outside it.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      dismiss();
+      return true;
+    });
+    return () => subscription.remove();
+  });
 
   const translateY = pop.interpolate({ inputRange: [0, 1], outputRange: [0, shift] });
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] });
@@ -118,14 +134,7 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
   const menuShift = pop.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] });
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      navigationBarTranslucent
-      onRequestClose={dismiss}
-    >
+    <Overlay>
       <Animated.View
         style={[StyleSheet.absoluteFill, { opacity: fade }]}
         onLayout={(e) => setScreenHeight(e.nativeEvent.layout.height)}
@@ -186,7 +195,7 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
           </Animated.View>
         </Animated.View>
       </Animated.View>
-    </Modal>
+    </Overlay>
   );
 }
 

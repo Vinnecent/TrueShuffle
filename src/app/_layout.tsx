@@ -8,6 +8,7 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 
+import { OverlayProvider } from '@/components/Overlay';
 import { DATABASE_NAME, initDatabase } from '@/db/schema';
 import { navigationTheme } from '@/theme';
 
@@ -19,7 +20,10 @@ export default function RootLayout() {
     <SQLiteProvider databaseName={DATABASE_NAME} onInit={initDatabase}>
       <ThemeProvider value={navigationTheme}>
         <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }} />
+        {/* Layer for the queue's long-press menu, above every screen and the tab bar. */}
+        <OverlayProvider>
+          <Stack screenOptions={{ headerShown: false }} />
+        </OverlayProvider>
       </ThemeProvider>
     </SQLiteProvider>
   );
