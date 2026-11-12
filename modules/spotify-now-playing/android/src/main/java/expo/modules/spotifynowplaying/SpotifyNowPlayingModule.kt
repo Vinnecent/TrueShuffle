@@ -30,6 +30,8 @@ class SpotifyNowPlayingModule : Module() {
   private var playing: Boolean? = null
   private var positionMs: Long = 0
   private var positionAt: Long = 0
+  /** timeSent of the metadata broadcast the song fields come from. */
+  private var metadataAt: Long = 0
 
   override fun definition() = ModuleDefinition {
     Name("SpotifyNowPlaying")
@@ -43,6 +45,10 @@ class SpotifyNowPlayingModule : Module() {
 
     OnStopObserving(CHANGE_EVENT) { stopListening() }
 
+    // While the screen was off the app may have been frozen and missed broadcasts (or got them late,
+    // out of order). Catch up from Spotify's latest sticky broadcasts when it is shown again.
+    OnActivityEntersForeground { if (receiver != null) catchUp() }
+
     OnDestroy { stopListening() }
   }
 
@@ -54,6 +60,9 @@ class SpotifyNowPlayingModule : Module() {
     if (receiver != null) return
     val newReceiver = object : BroadcastReceiver() {
       override fun onReceive(context: Context, intent: Intent) {
+        // A missed song change shows up as playback broadcasts for a song we don't know about,
+        // so check the latest song broadcast before applying the playback state.
+        if (intent.action == PLAYBACK_STATE_CHANGED) latestSticky(METADATA_CHANGED)?.let { handle(it) }
         handle(intent)
       }
     }
@@ -74,6 +83,30 @@ class SpotifyNowPlayingModule : Module() {
     sticky?.let { handle(it) }
   }
 
+  /**
+   * Spotify's latest broadcast for [action], which Android keeps because Spotify sends them sticky.
+   * Registering a null receiver only reads it; nothing stays registered.
+   */
+  private fun latestSticky(action: String): Intent? {
+    val ctx = context ?: return null
+    val filter = IntentFilter(action)
+    return try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ctx.registerReceiver(null, filter, Context.RECEIVER_EXPORTED)
+      } else {
+        @Suppress("UnspecifiedRegisterReceiverFlag")
+        ctx.registerReceiver(null, filter)
+      }
+    } catch (_: RuntimeException) {
+      null
+    }
+  }
+
+  private fun catchUp() {
+    latestSticky(METADATA_CHANGED)?.let { handle(it) }
+    latestSticky(PLAYBACK_STATE_CHANGED)?.let { handle(it) }
+  }
+
   private fun stopListening() {
     val r = receiver ?: return
     receiver = null
@@ -89,6 +122,9 @@ class SpotifyNowPlayingModule : Module() {
     val sentAt = intent.getLongExtra("timeSent", System.currentTimeMillis())
     when (intent.action) {
       METADATA_CHANGED -> {
+        // Already applied, or an older broadcast delivered late: keep the newer song.
+        if (sentAt <= metadataAt) return
+        metadataAt = sentAt
         val newId = intent.getStringExtra("id")
         val changedTrack = newId != trackId
         trackId = newId
