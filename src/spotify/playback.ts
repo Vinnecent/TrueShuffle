@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import { Linking } from 'react-native';
 
+import { getMeta, setMeta } from '@/db/queries';
 import { t } from '@/i18n';
 
 import {
@@ -55,23 +57,53 @@ async function getOrCreatePlaylist(): Promise<string> {
 }
 
 /**
- * Replaces the songs of the TrueShuffle playlist with `uris`, in this exact order.
+ * What the app last sent successfully: the playlist and its songs in order. In the library database's meta
+ * table, so Clear library removes it; Import removes it too (an imported queue was not sent from this phone).
+ */
+export const SENT_QUEUE_KEY = 'sent_queue';
+
+type SentQueue = { playlistId: string; uris: string[] };
+
+/**
+ * The TrueShuffle playlist's ID if it already holds exactly these songs in this order (sent from this app,
+ * to the playlist of the account that is logged in), otherwise null. Only local data, no request.
+ * Edits made to the playlist in Spotify itself are not noticed.
+ */
+export async function getPlaylistHoldingQueue(db: SQLiteDatabase, uris: string[]): Promise<string | null> {
+  if (uris.length === 0) return null;
+  // Logging out deletes the playlist ID, so after an account change nothing counts as sent.
+  const [raw, playlistId] = await Promise.all([getMeta(db, SENT_QUEUE_KEY), SecureStore.getItemAsync(PLAYLIST_ID_KEY)]);
+  if (!raw || !playlistId) return null;
+  try {
+    const sent = JSON.parse(raw) as SentQueue;
+    const same =
+      sent.playlistId === playlistId && sent.uris.length === uris.length && sent.uris.every((u, i) => u === uris[i]);
+    return same ? playlistId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Replaces the songs of the TrueShuffle playlist with `uris`, in this exact order, and remembers them as sent.
  * One request (plus one to check/create the playlist); works without an active device or Premium.
  */
-export async function sendToSpotifyPlaylist(uris: string[]): Promise<string> {
+export async function sendToSpotifyPlaylist(db: SQLiteDatabase, uris: string[]): Promise<string> {
   const songs = uris.slice(0, PLAYLIST_REPLACE_LIMIT);
-  const id = await getOrCreatePlaylist();
+  let id = await getOrCreatePlaylist();
   try {
     await replacePlaylistItems(id, songs);
-    return id;
   } catch (e) {
     // The stored playlist is gone or no longer ours (e.g. different account): start a new one once.
     if (!(e instanceof SpotifyApiError) || (e.status !== 404 && e.status !== 403)) throw e;
     await SecureStore.deleteItemAsync(PLAYLIST_ID_KEY);
-    const fresh = await getOrCreatePlaylist();
-    await replacePlaylistItems(fresh, songs);
-    return fresh;
+    id = await getOrCreatePlaylist();
+    await replacePlaylistItems(id, songs);
   }
+  // Only after Spotify accepted the songs.
+  const sent: SentQueue = { playlistId: id, uris: songs };
+  await setMeta(db, SENT_QUEUE_KEY, JSON.stringify(sent));
+  return id;
 }
 
 /**

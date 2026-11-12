@@ -33,6 +33,7 @@ import { ensureLoggedInWithScopes, NotAuthenticatedError } from '@/spotify/auth'
 import { useIsPlaying, useSpotifyNowPlaying } from '@/spotify/nowPlaying';
 import {
   describePlaybackError,
+  getPlaylistHoldingQueue,
   openPlaylistInSpotify,
   playSpotifyPlaylist,
   sendToSpotifyPlaylist,
@@ -122,14 +123,25 @@ export default function QueueScreen() {
   const send = async () => {
     setSending(true);
     try {
-      // Asks for a (re-)login if the stored one predates the playlist permissions.
-      await ensureLoggedInWithScopes();
-      const playlistId = await sendToSpotifyPlaylist(queueUris);
-      Alert.alert(t('queue.playlistUpdatedTitle'), t('queue.playlistUpdatedText', { count: queue.length }), [
-        { text: t('common.done'), style: 'cancel' },
+      const buttons = (playlistId: string) => [
+        { text: t('common.done'), style: 'cancel' as const },
         { text: t('common.openInSpotify'), onPress: () => openPlaylistInSpotify(playlistId) },
         { text: t('queue.playNow'), onPress: () => play(playlistId) },
-      ]);
+      ];
+      // This exact queue was already sent: no need to spend Spotify requests on sending it again.
+      const holding = await getPlaylistHoldingQueue(db, queueUris);
+      if (holding) {
+        Alert.alert(t('queue.alreadySentTitle'), t('queue.alreadySentText'), buttons(holding));
+        return;
+      }
+      // Asks for a (re-)login if the stored one predates the playlist permissions.
+      await ensureLoggedInWithScopes();
+      const playlistId = await sendToSpotifyPlaylist(db, queueUris);
+      Alert.alert(
+        t('queue.playlistUpdatedTitle'),
+        t('queue.playlistUpdatedText', { count: queue.length }),
+        buttons(playlistId),
+      );
     } catch (e) {
       if (e instanceof NotAuthenticatedError) {
         Alert.alert(t('queue.notConnectedTitle'), t('queue.notConnectedText'), [

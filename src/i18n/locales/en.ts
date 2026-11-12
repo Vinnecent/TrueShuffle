@@ -57,6 +57,9 @@ export const en = {
     playlistUpdatedText_other:
       'Your “TrueShuffle” playlist in Spotify now holds these {{count}} songs. Play it with Spotify’s shuffle turned off to keep this order.',
     playNow: 'Play now',
+    alreadySentTitle: 'Already in Spotify',
+    alreadySentText:
+      'Your “TrueShuffle” playlist in Spotify already holds this queue, so nothing was sent. Shuffle or change the queue to send a new one.',
     notConnectedTitle: 'Not connected',
     notConnectedText: 'Connect your Spotify account on the Settings tab first.',
     openSettings: 'Open Settings',

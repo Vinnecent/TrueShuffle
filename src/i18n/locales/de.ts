@@ -54,6 +54,9 @@ export const de: Translations = {
     playlistUpdatedText_other:
       'Deine Playlist „TrueShuffle“ in Spotify enthält jetzt diese {{count}} Songs. Spiele sie mit ausgeschaltetem Spotify-Shuffle ab, damit diese Reihenfolge erhalten bleibt.',
     playNow: 'Jetzt abspielen',
+    alreadySentTitle: 'Bereits in Spotify',
+    alreadySentText:
+      'Deine Playlist „TrueShuffle“ in Spotify enthält diese Warteschlange bereits, daher wurde nichts gesendet. Mische neu oder ändere die Warteschlange, um eine neue zu senden.',
     notConnectedTitle: 'Nicht verbunden',
     notConnectedText: 'Verbinde zuerst dein Spotify-Konto im Tab „Einstellungen“.',
     openSettings: 'Einstellungen öffnen',

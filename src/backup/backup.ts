@@ -6,7 +6,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { invalidateShuffleCandidates } from '@/db/queries';
 import { t } from '@/i18n';
 import type { Translations } from '@/i18n/locales/en';
-import { getStoredPlaylistId, restorePlaylistId } from '@/spotify/playback';
+import { getStoredPlaylistId, restorePlaylistId, SENT_QUEUE_KEY } from '@/spotify/playback';
 
 /**
  * Library backup as a minified JSON file, to move the synced library to another phone.
@@ -360,6 +360,8 @@ export async function importLibrary(db: SQLiteDatabase, backup: Backup): Promise
       DELETE FROM artists;
       DELETE FROM meta WHERE key LIKE 'filter!_%' ESCAPE '!';
     `);
+    // The imported queue was not sent from this phone.
+    await txn.runAsync('DELETE FROM meta WHERE key = ?', SENT_QUEUE_KEY);
 
     const insertAll = async <T>(sql: string, rows: T[], params: (row: T) => (string | number | null)[]) => {
       const stmt = await txn.prepareAsync(sql);
