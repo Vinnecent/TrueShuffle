@@ -13,7 +13,7 @@
 </p>
 
 ## Features
-- **Truly random queue** – 75 randomly selected songs from your followed artists
+- **Truly random queue** – 100 randomly selected songs from your followed artists
 - **Send to Spotify** – the queue goes into a private "TrueShuffle" playlist, ready to play or start the playlist directly from the app
 - **Filters** – leave out acoustic, remix, live, instrumental or short intro songs from the shuffle
 - **Private** – your library is stored only on your phone; you connect with your own

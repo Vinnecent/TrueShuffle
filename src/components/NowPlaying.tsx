@@ -20,7 +20,7 @@ type StoredTrack = { duration_ms: number; image_url: string | null };
 type Props = {
   /** From `useSpotifyNowPlaying()` on the screen, which shares it with the queue list. */
   state: SpotifyPlaybackState | null;
-  /** Spotify URIs of the queued songs, in order, to show "Song 3 of 75 in your queue". */
+  /** Spotify URIs of the queued songs, in order, to show "Song 3 of 100 in your queue". */
   queueUris: string[];
 };
 

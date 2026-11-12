@@ -2,7 +2,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { pickRandomFromGroups, pickRandomUnique } from '@/lib/shuffle';
 
-export const MAX_QUEUE_SIZE = 75;
+/** Songs per queue; at most Spotify's limit for replacing a playlist in one request (PLAYLIST_REPLACE_LIMIT). */
+export const MAX_QUEUE_SIZE = 100;
 
 export type ArtistRow = {
   id: string;
