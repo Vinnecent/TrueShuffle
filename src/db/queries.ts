@@ -398,6 +398,43 @@ export async function setArtistExcluded(db: SQLiteDatabase, artistId: string, ex
   }
 }
 
+/**
+ * The followed, not yet excluded artists a queued song belongs to (through its release), i.e. the
+ * artists that can be excluded from it. Usually one; a split release can have several.
+ */
+export function getExcludableArtistsForTrack(
+  db: SQLiteDatabase,
+  trackId: string,
+): Promise<{ id: string; name: string }[]> {
+  return db.getAllAsync(
+    `SELECT ar.id, ar.name
+     FROM tracks t
+     JOIN artist_albums aa ON aa.album_id = t.album_id
+     JOIN artists ar       ON ar.id = aa.artist_id
+     WHERE t.id = ? AND ar.id NOT IN (SELECT artist_id FROM excluded_artists)
+     ORDER BY ar.name COLLATE NOCASE`,
+    trackId,
+  );
+}
+
+/**
+ * Excludes an artist from the shuffle and removes their songs from the queue: those that are now out of
+ * the shuffle. A song on a release shared with another, still included artist stays (as in the shuffle).
+ */
+export async function excludeArtistAndRemoveFromQueue(db: SQLiteDatabase, artistId: string): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('INSERT OR IGNORE INTO excluded_artists (artist_id) VALUES (?)', artistId);
+    await txn.runAsync(
+      `DELETE FROM queue WHERE track_id IN (
+         SELECT t.id FROM tracks t
+         WHERE t.album_id IN (SELECT album_id FROM artist_albums WHERE artist_id = ?)
+           AND NOT ${SHUFFLE_TRACKS_WHERE}
+       )`,
+      artistId,
+    );
+  });
+}
+
 export async function removeFromQueue(db: SQLiteDatabase, position: number): Promise<void> {
   await db.runAsync('DELETE FROM queue WHERE position = ?', position);
 }

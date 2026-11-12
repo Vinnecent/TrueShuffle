@@ -6,15 +6,19 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { activeFilterCount, FilterSheet } from '@/components/FilterSheet';
 import { NowPlaying } from '@/components/NowPlaying';
-import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
+import { QueueItem, type RowLayout } from '@/components/QueueItem';
+import { QueueItemMenu, type QueueMenuTarget } from '@/components/QueueItemMenu';
+import { Button, EmptyState, styles as ui } from '@/components/ui';
 import {
   countShuffleTracks,
   DEFAULT_ARTIST_WEIGHTING,
   DEFAULT_SHUFFLE_FILTERS,
+  excludeArtistAndRemoveFromQueue,
   generateShuffledQueue,
   getLibraryStats,
   getQueue,
   getArtistWeighting,
+  getExcludableArtistsForTrack,
   getShuffleFilters,
   MAX_QUEUE_SIZE,
   removeFromQueue,
@@ -32,7 +36,7 @@ import {
   playSpotifyPlaylist,
   sendToSpotifyPlaylist,
 } from '@/spotify/playback';
-import { colors, formatDuration } from '@/theme';
+import { colors } from '@/theme';
 
 export default function QueueScreen() {
   const db = useSQLiteContext();
@@ -46,6 +50,7 @@ export default function QueueScreen() {
   const [sending, setSending] = useState(false);
   const [shuffling, setShuffling] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [menu, setMenu] = useState<QueueMenuTarget | null>(null);
   const activeFilters = activeFilterCount(filters, weighting);
   const queueUris = useMemo(() => queue.map((q) => q.uri), [queue]);
   // What Spotify plays, shared by the Now playing card and the list (-1 if it is not in the queue).
@@ -136,18 +141,21 @@ export default function QueueScreen() {
     }
   };
 
-  const confirmRemove = (row: QueueRow) =>
-    Alert.alert('Remove from queue?', `${row.name} — ${row.artists}`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await removeFromQueue(db, row.position);
-          await load();
-        },
-      },
-    ]);
+  const openMenu = async (item: QueueRow, index: number, layout: RowLayout) => {
+    const artists = await getExcludableArtistsForTrack(db, item.track_id);
+    const current = index === playingIndex;
+    setMenu({ item, index, current, isPlaying: current && isPlaying, layout, artists });
+  };
+
+  const remove = async (row: QueueRow) => {
+    await removeFromQueue(db, row.position);
+    await load();
+  };
+
+  const excludeArtist = async (artistId: string) => {
+    await excludeArtistAndRemoveFromQueue(db, artistId);
+    await load();
+  };
 
   if (libraryTracks === null) return <View style={screen.container} />;
 
@@ -210,7 +218,7 @@ export default function QueueScreen() {
       <FlatList
         data={queue}
         keyExtractor={(item) => String(item.position)}
-        extraData={`${playingIndex}:${isPlaying}`}
+        extraData={`${playingIndex}:${isPlaying}:${menu?.item.position}`}
         contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={
           shuffleTracks === 0 ? (
@@ -226,40 +234,28 @@ export default function QueueScreen() {
             </EmptyState>
           )
         }
-        renderItem={({ item, index }) => {
-          const current = index === playingIndex;
-          return (
-            <Pressable
-              onLongPress={() => confirmRemove(item)}
-              style={[screen.row, current && screen.rowCurrent]}
-              accessibilityState={current ? { selected: true } : undefined}
-              accessibilityHint={current ? (isPlaying ? 'Playing in Spotify' : 'Paused in Spotify') : undefined}
-            >
-              {current ? (
-                <View style={screen.indexIcon}>
-                  <Ionicons
-                    name={isPlaying ? 'volume-high' : 'pause'}
-                    size={18}
-                    color={isPlaying ? colors.accent : colors.textMuted}
-                  />
-                </View>
-              ) : (
-                <Text style={screen.index}>{index + 1}</Text>
-              )}
-              <Artwork uri={item.image_url} size={44} />
-              <View style={screen.rowText}>
-                <Text style={[screen.title, current && { color: colors.accent }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={screen.subtitle} numberOfLines={1}>
-                  {item.artists} · {item.album_name}
-                </Text>
-              </View>
-              <Text style={screen.duration}>{formatDuration(item.duration_ms)}</Text>
-            </Pressable>
-          );
-        }}
+        renderItem={({ item, index }) => (
+          <QueueItem
+            item={item}
+            index={index}
+            current={index === playingIndex}
+            isPlaying={isPlaying}
+            onLongPress={(layout) => openMenu(item, index, layout)}
+            // The menu shows a popped-out copy of the row; hide the original meanwhile.
+            style={menu?.item.position === item.position && { opacity: 0 }}
+          />
+        )}
       />
+
+      {menu ? (
+        <QueueItemMenu
+          key={menu.item.position}
+          target={menu}
+          onRemove={remove}
+          onExclude={excludeArtist}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
 
       <FilterSheet
         visible={filtersOpen}
@@ -294,12 +290,4 @@ const screen = StyleSheet.create({
   },
   filterButtonOn: { borderColor: colors.accent },
   filterButtonText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
-  rowCurrent: { backgroundColor: colors.surface },
-  index: { color: colors.textMuted, width: 22, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  indexIcon: { width: 22, alignItems: 'flex-end' },
-  rowText: { flex: 1 },
-  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
-  duration: { color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
 });
