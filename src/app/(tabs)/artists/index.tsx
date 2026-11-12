@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Link, useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -99,20 +99,21 @@ export default function ArtistsScreen() {
           )
         }
         renderItem={({ item }) => (
-          <Link href={{ pathname: '/artists/[id]', params: { id: item.id } }} asChild>
-            <Pressable style={screen.row}>
-              <Artwork uri={item.image_url} size={52} round />
-              <View style={{ flex: 1, opacity: item.excluded ? 0.5 : 1 }}>
-                <Text style={screen.name} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={screen.meta} numberOfLines={1}>
-                  {countLabel(item.album_count, 'release')} · {countLabel(item.track_count, 'song')}
-                  {item.excluded ? ' · Excluded from shuffle' : ''}
-                </Text>
-              </View>
-            </Pressable>
-          </Link>
+          <Pressable
+            onPress={() => router.push({ pathname: '/artists/[id]', params: { id: item.id } })}
+            style={({ pressed }) => [screen.row, pressed && { backgroundColor: colors.highlight }]}
+          >
+            <Artwork uri={item.image_url} size={52} round />
+            <View style={{ flex: 1, opacity: item.excluded ? 0.5 : 1 }}>
+              <Text style={screen.name} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={screen.meta} numberOfLines={1}>
+                {countLabel(item.album_count, 'release')} · {countLabel(item.track_count, 'song')}
+                {item.excluded ? ' · Excluded from shuffle' : ''}
+              </Text>
+            </View>
+          </Pressable>
         )}
       />
     </View>

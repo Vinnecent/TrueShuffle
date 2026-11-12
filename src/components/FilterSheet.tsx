@@ -114,7 +114,7 @@ export function FilterSheet({
               disabled={disabled}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: on }}
-              style={({ pressed }) => [sheet.row, pressed && { backgroundColor: colors.surfaceRaised }]}
+              style={({ pressed }) => [sheet.row, pressed && { backgroundColor: colors.highlight }]}
             >
               <Ionicons
                 name={on ? 'checkbox' : 'square-outline'}

@@ -107,9 +107,12 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
 
   const translateY = pop.interpolate({ inputRange: [0, 1], outputRange: [0, shift] });
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] });
-  // The row's own background fades into a rounded highlight while it pops out, and back while it returns,
-  // so it already looks like the list row again when it lands.
-  const plainOpacity = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  // The row's square background crossfades with a rounded highlight. Opening, it starts in the pressed colour
+  // the held row already shows, so nothing changes colour; closing, it fades back to the row's normal
+  // background (swapped while invisible), so it looks like the list row again when it lands.
+  // Staggered, so one of the two layers is always opaque and the dimmed screen never shows through.
+  const plainOpacity = pop.interpolate({ inputRange: [0.5, 1], outputRange: [1, 0], extrapolate: 'clamp' });
+  const highlightOpacity = pop.interpolate({ inputRange: [0, 0.5], outputRange: [0, 1], extrapolate: 'clamp' });
   const menuShift = pop.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] });
 
   return (
@@ -142,17 +145,13 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
             <Animated.View
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: current ? colors.surface : colors.background, opacity: plainOpacity },
+                {
+                  backgroundColor: !closing ? colors.highlight : current ? colors.surface : colors.background,
+                  opacity: plainOpacity,
+                },
               ]}
             />
-            <Animated.View
-              style={[
-                StyleSheet.absoluteFill,
-                menu.highlight,
-                current && { backgroundColor: colors.surfaceRaised },
-                { opacity: pop },
-              ]}
-            />
+            <Animated.View style={[StyleSheet.absoluteFill, menu.highlight, { opacity: highlightOpacity }]} />
             <QueueItem
               item={item}
               index={index}
@@ -207,7 +206,7 @@ function MenuOption({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      style={({ pressed }) => [menu.option, pressed && { backgroundColor: colors.surfaceRaised }]}
+      style={({ pressed }) => [menu.option, pressed && { backgroundColor: colors.highlight }]}
     >
       <Ionicons name={icon} size={22} color={color} />
       <View style={{ flex: 1 }}>
@@ -222,7 +221,7 @@ function MenuOption({
 
 const menu = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0, 0, 0, 0.7)' },
-  highlight: { borderRadius: 12, backgroundColor: colors.surface },
+  highlight: { borderRadius: 12, backgroundColor: colors.highlight },
   rowInner: { backgroundColor: 'transparent' },
   card: {
     marginTop: GAP,

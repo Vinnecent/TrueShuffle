@@ -165,7 +165,7 @@ const screen = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.surface,
   },
-  excludePressed: { backgroundColor: colors.surfaceRaised },
+  excludePressed: { backgroundColor: colors.highlight },
   shuffle: {
     width: 56,
     height: 56,

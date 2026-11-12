@@ -580,7 +580,7 @@ const screen = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
   },
-  redirectPressed: { backgroundColor: colors.surfaceRaised },
+  redirectPressed: { backgroundColor: colors.highlight },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',

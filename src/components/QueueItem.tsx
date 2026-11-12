@@ -38,7 +38,7 @@ export function QueueItem({ item, index, current, isPlaying, onLongPress, style,
       style={({ pressed }) => [
         row.container,
         current && row.current,
-        pressed && { backgroundColor: colors.surfaceRaised },
+        pressed && { backgroundColor: colors.highlight },
         style,
       ]}
       accessibilityState={current ? { selected: true } : undefined}

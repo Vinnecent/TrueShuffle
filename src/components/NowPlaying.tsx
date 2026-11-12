@@ -89,13 +89,13 @@ export function NowPlaying({ state, queueUris }: Props) {
 }
 
 const card = StyleSheet.create({
-  container: { padding: 12, borderRadius: 8, backgroundColor: colors.surface, gap: 10 },
+  container: { padding: 12, borderRadius: 8, backgroundColor: colors.surfaceRaised, gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   label: { color: colors.accent, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 15, fontWeight: '600', marginTop: 2 },
   artist: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  track: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.surfaceRaised, overflow: 'hidden' },
+  track: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.highlight, overflow: 'hidden' },
   fill: { height: 4, backgroundColor: colors.accent },
   time: { color: colors.textMuted, fontSize: 11, fontVariant: ['tabular-nums'], minWidth: 32, textAlign: 'center' },
 });

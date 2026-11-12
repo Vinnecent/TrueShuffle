@@ -13,7 +13,7 @@ function TabBarButton(props: BottomTabBarButtonProps) {
   return (
     <PlatformPressable
       {...props}
-      android_ripple={{ borderless: false, foreground: true, color: 'rgba(255, 255, 255, 0.12)' }}
+      android_ripple={{ borderless: false, foreground: true, color: 'rgba(255, 255, 255, 0.2)' }}
     />
   );
 }

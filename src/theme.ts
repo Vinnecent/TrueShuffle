@@ -2,9 +2,13 @@ import { DarkTheme, type Theme } from 'expo-router';
 
 export const colors = {
   background: '#121212',
-  surface: '#1E1E1E',
-  surfaceRaised: '#2A2A2A',
-  border: '#2E2E2E',
+  /** Cards, sheets, the tab bar and the playing song's row. */
+  surface: '#232323',
+  /** Inputs, secondary buttons, empty artwork and tracks on a background or surface. */
+  surfaceRaised: '#333333',
+  /** Pressed rows and the popped-out queue item: clearly lighter than background, surface and surfaceRaised. */
+  highlight: '#454545',
+  border: '#3A3A3A',
   text: '#FFFFFF',
   textMuted: '#A7A7A7',
   accent: '#1ED760',
