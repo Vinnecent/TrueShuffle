@@ -36,7 +36,21 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading 
   );
 }
 
-export function Artwork({ uri, size = 48, round }: { uri: string | null; size?: number; round?: boolean }) {
+export function Artwork({
+  uri,
+  size = 48,
+  round,
+  fadeIn = true,
+  onDisplay,
+}: {
+  uri: string | null;
+  size?: number;
+  round?: boolean;
+  /** Fade the picture in once loaded; off where it replaces a copy that is already on screen. */
+  fadeIn?: boolean;
+  /** Called once the picture is on screen. */
+  onDisplay?: () => void;
+}) {
   const style = { width: size, height: size, borderRadius: round ? size / 2 : 4 };
   return uri ? (
     // Cached in memory and on disk: artwork is downloaded once, then loads from storage.
@@ -47,7 +61,8 @@ export function Artwork({ uri, size = 48, round }: { uri: string | null; size?: 
       contentFit="cover"
       cachePolicy="memory-disk"
       recyclingKey={uri}
-      transition={150}
+      transition={fadeIn ? 150 : 0}
+      onDisplay={onDisplay}
     />
   ) : (
     <View style={[style, styles.artwork]} />

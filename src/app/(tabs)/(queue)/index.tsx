@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { activeFilterCount, FilterSheet } from '@/components/FilterSheet';
@@ -38,6 +38,9 @@ import {
 } from '@/spotify/playback';
 import { colors } from '@/theme';
 
+/** How long the list gets to scroll a long-pressed row into view before its menu opens. */
+const SCROLL_INTO_VIEW_MS = 300;
+
 export default function QueueScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -51,6 +54,8 @@ export default function QueueScreen() {
   const [shuffling, setShuffling] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [menu, setMenu] = useState<QueueMenuTarget | null>(null);
+  /** Queue position of the row the menu shows a copy of; hidden in the list meanwhile. */
+  const [hiddenPosition, setHiddenPosition] = useState<number | null>(null);
   const activeFilters = activeFilterCount(filters, weighting);
   const queueUris = useMemo(() => queue.map((q) => q.uri), [queue]);
   // What Spotify plays, shared by the Now playing card and the list (-1 if it is not in the queue).
@@ -141,10 +146,36 @@ export default function QueueScreen() {
     }
   };
 
+  const listRef = useRef<FlatList<QueueRow>>(null);
+  const listFrameRef = useRef<ComponentRef<typeof View>>(null);
+  /** Scroll position and sizes of the list, to scroll a long-pressed row fully into view. */
+  const scroll = useRef({ offset: 0, contentHeight: 0, viewportHeight: 0 });
+
+  /** The list's visible area in window coordinates. */
+  const measureList = () =>
+    new Promise<{ top: number; bottom: number } | null>((resolve) => {
+      if (!listFrameRef.current) return resolve(null);
+      listFrameRef.current.measureInWindow((_x, y, _w, height) => resolve({ top: y, bottom: y + height }));
+    });
+
   const openMenu = async (item: QueueRow, index: number, layout: RowLayout) => {
-    const artists = await getExcludableArtistsForTrack(db, item.track_id);
+    const [artists, list] = await Promise.all([getExcludableArtistsForTrack(db, item.track_id), measureList()]);
+    // A row partly hidden under the header or tab bar is scrolled fully into view first, so the popped-out
+    // copy, which is drawn above everything, returns to a spot that is not covered when the menu closes.
+    let rowLayout = layout;
+    if (list) {
+      const { offset, contentHeight, viewportHeight } = scroll.current;
+      const wanted = layout.y < list.top ? layout.y - list.top : Math.max(0, layout.y + layout.height - list.bottom);
+      const target = Math.min(Math.max(0, offset + wanted), Math.max(0, contentHeight - viewportHeight));
+      const delta = target - offset;
+      if (Math.abs(delta) >= 1) {
+        listRef.current?.scrollToOffset({ offset: target, animated: true });
+        await new Promise((resolve) => setTimeout(resolve, SCROLL_INTO_VIEW_MS));
+        rowLayout = { ...layout, y: layout.y - delta };
+      }
+    }
     const current = index === playingIndex;
-    setMenu({ item, index, current, isPlaying: current && isPlaying, layout, artists });
+    setMenu({ item, index, current, isPlaying: current && isPlaying, layout: rowLayout, artists });
   };
 
   const remove = async (row: QueueRow) => {
@@ -215,37 +246,50 @@ export default function QueueScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={queue}
-        keyExtractor={(item) => String(item.position)}
-        extraData={`${playingIndex}:${isPlaying}:${menu?.item.position}`}
-        contentContainerStyle={{ flexGrow: 1 }}
-        ListEmptyComponent={
-          shuffleTracks === 0 ? (
-            <EmptyState title="Nothing left to shuffle">
-              <Text style={ui.muted}>
-                Every song is excluded by an artist exclusion or a filter. Turn a filter off, or include an artist again
-                on the Artists tab.
-              </Text>
-            </EmptyState>
-          ) : (
-            <EmptyState title="No songs queued">
-              <Text style={ui.muted}>Tap Shuffle to draw {MAX_QUEUE_SIZE} random songs from your library.</Text>
-            </EmptyState>
-          )
-        }
-        renderItem={({ item, index }) => (
-          <QueueItem
-            item={item}
-            index={index}
-            current={index === playingIndex}
-            isPlaying={isPlaying}
-            onLongPress={(layout) => openMenu(item, index, layout)}
-            // The menu shows a popped-out copy of the row; hide the original meanwhile.
-            style={menu?.item.position === item.position && { opacity: 0 }}
-          />
-        )}
-      />
+      <View ref={listFrameRef} style={{ flex: 1 }} collapsable={false}>
+        <FlatList
+          ref={listRef}
+          data={queue}
+          onScroll={(e) => {
+            scroll.current.offset = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          onContentSizeChange={(_w, h) => {
+            scroll.current.contentHeight = h;
+          }}
+          onLayout={(e) => {
+            scroll.current.viewportHeight = e.nativeEvent.layout.height;
+          }}
+          keyExtractor={(item) => String(item.position)}
+          extraData={`${playingIndex}:${isPlaying}:${hiddenPosition}`}
+          contentContainerStyle={{ flexGrow: 1 }}
+          ListEmptyComponent={
+            shuffleTracks === 0 ? (
+              <EmptyState title="Nothing left to shuffle">
+                <Text style={ui.muted}>
+                  Every song is excluded by an artist exclusion or a filter. Turn a filter off, or include an artist
+                  again on the Artists tab.
+                </Text>
+              </EmptyState>
+            ) : (
+              <EmptyState title="No songs queued">
+                <Text style={ui.muted}>Tap Shuffle to draw {MAX_QUEUE_SIZE} random songs from your library.</Text>
+              </EmptyState>
+            )
+          }
+          renderItem={({ item, index }) => (
+            <QueueItem
+              item={item}
+              index={index}
+              current={index === playingIndex}
+              isPlaying={isPlaying}
+              onLongPress={(layout) => openMenu(item, index, layout)}
+              // The menu shows a popped-out copy of the row; hide the original meanwhile.
+              style={hiddenPosition === item.position && { opacity: 0 }}
+            />
+          )}
+        />
+      </View>
 
       {menu ? (
         <QueueItemMenu
@@ -253,6 +297,8 @@ export default function QueueScreen() {
           target={menu}
           onRemove={remove}
           onExclude={excludeArtist}
+          onPopped={() => setHiddenPosition(menu.item.position)}
+          onSettled={() => setHiddenPosition(null)}
           onClose={() => setMenu(null)}
         />
       ) : null}

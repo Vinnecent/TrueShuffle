@@ -18,10 +18,12 @@ type Props = {
   /** Called with the row's position on screen, e.g. to show a menu next to it. */
   onLongPress?: (layout: RowLayout) => void;
   style?: StyleProp<ViewStyle>;
+  /** Show the cover without fading it in, and report when it is on screen (or there is none). */
+  onCoverShown?: () => void;
 };
 
 /** One song in the queue list. */
-export function QueueItem({ item, index, current, isPlaying, onLongPress, style }: Props) {
+export function QueueItem({ item, index, current, isPlaying, onLongPress, style, onCoverShown }: Props) {
   const ref = useRef<ComponentRef<typeof Pressable>>(null);
 
   const longPress = onLongPress
@@ -53,7 +55,7 @@ export function QueueItem({ item, index, current, isPlaying, onLongPress, style 
       ) : (
         <Text style={row.index}>{index + 1}</Text>
       )}
-      <Artwork uri={item.image_url} size={44} />
+      <Artwork uri={item.image_url} size={44} fadeIn={!onCoverShown} onDisplay={onCoverShown} />
       <View style={row.text}>
         <Text style={[row.title, current && { color: colors.accent }]} numberOfLines={1}>
           {item.name}

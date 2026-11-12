@@ -22,8 +22,21 @@ type Props = {
   target: QueueMenuTarget;
   onRemove: (item: QueueRow) => void;
   onExclude: (artistId: string) => void;
+  /** The popped-out copy is back over the original row: show the original again (the copy still covers it). */
+  onSettled: () => void;
   onClose: () => void;
+  /** The popped-out copy is on screen with its cover: hide the original row now. */
+  onPopped: () => void;
 };
+
+/** Longest wait for the copy's cover to appear (e.g. an image that fails to load) before opening anyway. */
+const COVER_TIMEOUT_MS = 300;
+
+/**
+ * How long the copy stays over the original row after onSettled, before the menu closes. Android shows
+ * the closed dialog and the list's next frame at slightly different times; this keeps the row from blinking.
+ */
+const HANDOVER_MS = 100;
 
 /** Space kept between the menu and the screen edges. */
 const EDGE = 16;
@@ -31,9 +44,9 @@ const GAP = 8;
 
 /**
  * Context menu for a queued song: the row pops out of the list over a dimmed screen, with its actions
- * below it. Mount it to open; it calls onClose once its closing animation has finished.
+ * below it. Mount it to open; it calls onSettled and then onClose once its closing animation has finished.
  */
-export function QueueItemMenu({ target, onRemove, onExclude, onClose }: Props) {
+export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose, onPopped }: Props) {
   const insets = useSafeAreaInsets();
   const { item, index, current, isPlaying, layout, artists } = target;
   const [pop] = useState(() => new Animated.Value(0));
@@ -41,6 +54,9 @@ export function QueueItemMenu({ target, onRemove, onExclude, onClose }: Props) {
   const [screenHeight, setScreenHeight] = useState<number | null>(null);
   const [menuHeight, setMenuHeight] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
+  // The copy stays invisible until its cover is on screen, so the cover never blinks; the original row
+  // under it stays visible until then.
+  const [coverShown, setCoverShown] = useState(!item.image_url);
 
   // Move the row up if the actions would not fit below it, but never under the status bar.
   const shift =
@@ -50,11 +66,20 @@ export function QueueItemMenu({ target, onRemove, onExclude, onClose }: Props) {
           insets.top + EDGE - layout.y,
           Math.min(0, screenHeight - insets.bottom - EDGE - (layout.y + layout.height + GAP + menuHeight)),
         );
-  const ready = screenHeight !== null && menuHeight !== null;
+  const ready = screenHeight !== null && menuHeight !== null && coverShown;
+
+  useEffect(() => {
+    if (coverShown) return;
+    const timer = setTimeout(() => setCoverShown(true), COVER_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [coverShown]);
 
   useEffect(() => {
     if (!ready) return;
+    onPopped();
     Animated.spring(pop, { toValue: 1, useNativeDriver: true, damping: 18, stiffness: 260, mass: 0.8 }).start();
+    // onPopped only once, when the copy is first ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, pop]);
 
   /** Back to its place in the list (backdrop tap, back button). */
@@ -62,7 +87,10 @@ export function QueueItemMenu({ target, onRemove, onExclude, onClose }: Props) {
     if (closing) return;
     setClosing(true);
     Animated.timing(pop, { toValue: 0, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(
-      () => onClose(),
+      () => {
+        onSettled();
+        setTimeout(onClose, HANDOVER_MS);
+      },
     );
   };
 
@@ -71,11 +99,17 @@ export function QueueItemMenu({ target, onRemove, onExclude, onClose }: Props) {
     if (closing) return;
     setClosing(true);
     action();
-    Animated.timing(fade, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => onClose());
+    Animated.timing(fade, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
+      onSettled();
+      onClose();
+    });
   };
 
   const translateY = pop.interpolate({ inputRange: [0, 1], outputRange: [0, shift] });
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] });
+  // The row's own background fades into a rounded highlight while it pops out, and back while it returns,
+  // so it already looks like the list row again when it lands.
+  const plainOpacity = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
   const menuShift = pop.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] });
 
   return (
@@ -104,8 +138,29 @@ export function QueueItemMenu({ target, onRemove, onExclude, onClose }: Props) {
             transform: [{ translateY }],
           }}
         >
-          <Animated.View style={[menu.row, { transform: [{ scale }] }]}>
-            <QueueItem item={item} index={index} current={current} isPlaying={isPlaying} style={menu.rowInner} />
+          <Animated.View style={{ opacity: ready ? 1 : 0, transform: [{ scale }] }}>
+            <Animated.View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: current ? colors.surface : colors.background, opacity: plainOpacity },
+              ]}
+            />
+            <Animated.View
+              style={[
+                StyleSheet.absoluteFill,
+                menu.highlight,
+                current && { backgroundColor: colors.surfaceRaised },
+                { opacity: pop },
+              ]}
+            />
+            <QueueItem
+              item={item}
+              index={index}
+              current={current}
+              isPlaying={isPlaying}
+              style={menu.rowInner}
+              onCoverShown={() => setCoverShown(true)}
+            />
           </Animated.View>
 
           <Animated.View
@@ -167,13 +222,8 @@ function MenuOption({
 
 const menu = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0, 0, 0, 0.7)' },
-  row: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-    elevation: 12,
-  },
-  rowInner: { backgroundColor: colors.surface },
+  highlight: { borderRadius: 12, backgroundColor: colors.surface },
+  rowInner: { backgroundColor: 'transparent' },
   card: {
     marginTop: GAP,
     marginHorizontal: EDGE,

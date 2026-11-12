@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
@@ -22,6 +23,7 @@ export default function ArtistsScreen() {
   const router = useRouter();
   const [artists, setArtists] = useState<ArtistRow[] | null>(null);
   const [filter, setFilter] = useState('');
+  const [onlyExcluded, setOnlyExcluded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -31,9 +33,9 @@ export default function ArtistsScreen() {
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const all = artists ?? [];
-    return q ? all.filter((a) => a.name.toLowerCase().includes(q)) : all;
-  }, [artists, filter]);
+    return (artists ?? []).filter((a) => (!onlyExcluded || a.excluded) && (!q || a.name.toLowerCase().includes(q)));
+  }, [artists, filter, onlyExcluded]);
+  const excludedCount = useMemo(() => (artists ?? []).filter((a) => a.excluded).length, [artists]);
 
   if (artists === null) return <View style={screen.container} />;
 
@@ -50,22 +52,52 @@ export default function ArtistsScreen() {
 
   return (
     <View style={screen.container}>
-      <TextInput
-        value={filter}
-        onChangeText={setFilter}
-        placeholder={`Search ${countLabel(artists.length, 'artist')}`}
-        placeholderTextColor={colors.textMuted}
-        style={screen.search}
-        autoCorrect={false}
-        clearButtonMode="while-editing"
-      />
+      <View style={screen.toolbar}>
+        <TextInput
+          value={filter}
+          onChangeText={setFilter}
+          placeholder={
+            onlyExcluded
+              ? `Search ${countLabel(excludedCount, 'excluded artist')}`
+              : `Search ${countLabel(artists.length, 'artist')}`
+          }
+          placeholderTextColor={colors.textMuted}
+          style={screen.search}
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+        />
+        <Pressable
+          onPress={() => setOnlyExcluded((on) => !on)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: onlyExcluded }}
+          accessibilityLabel={`Show only excluded artists, ${excludedCount}`}
+          style={({ pressed }) => [
+            screen.excludedButton,
+            onlyExcluded && screen.excludedButtonOn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons name="ban-outline" size={16} color={onlyExcluded ? colors.accent : colors.textMuted} />
+          <Text style={[screen.excludedButtonText, onlyExcluded && { color: colors.text }]}>
+            Excluded · {excludedCount}
+          </Text>
+        </Pressable>
+      </View>
       <FlatList
         data={visible}
         keyExtractor={(a) => a.id}
         getItemLayout={getItemLayout}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ flexGrow: 1 }}
-        ListEmptyComponent={<EmptyState title="No matching artists" />}
+        ListEmptyComponent={
+          onlyExcluded && excludedCount === 0 ? (
+            <EmptyState title="No excluded artists">
+              <Text style={ui.muted}>Exclude an artist from their page, or by long-pressing a song in the queue.</Text>
+            </EmptyState>
+          ) : (
+            <EmptyState title="No matching artists" />
+          )
+        }
         renderItem={({ item }) => (
           <Link href={{ pathname: '/artists/[id]', params: { id: item.id } }} asChild>
             <Pressable style={screen.row}>
@@ -89,10 +121,9 @@ export default function ArtistsScreen() {
 
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 8, marginBottom: 8 },
   search: {
-    margin: 16,
-    marginTop: 8,
-    marginBottom: 8,
+    flex: 1,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
@@ -100,6 +131,19 @@ const screen = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
   },
+  excludedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  excludedButtonOn: { borderColor: colors.accent },
+  excludedButtonText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, height: ROW_HEIGHT },
   name: { color: colors.text, fontSize: 16, fontWeight: '600' },
   meta: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
