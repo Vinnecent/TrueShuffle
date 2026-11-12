@@ -72,6 +72,8 @@ export default function SettingsScreen() {
     status: BackgroundSyncStatus | null;
   } | null>(null);
   const [togglingBackground, setTogglingBackground] = useState(false);
+  /** False until the stored state is read, so the screen does not first render without the other sections. */
+  const [loaded, setLoaded] = useState(false);
 
   const apply = useCallback((state: Awaited<ReturnType<typeof loadState>>) => {
     setSavedCreds(state.creds);
@@ -79,6 +81,7 @@ export default function SettingsScreen() {
     setStats(state.stats);
     setRateLimitedUntil(state.rateLimitedUntil);
     setBackground(state.background);
+    setLoaded(true);
   }, []);
 
   const refresh = useCallback(async () => apply(await loadState(db)), [apply, db]);
@@ -263,6 +266,8 @@ export default function SettingsScreen() {
       ],
     );
 
+  if (!loaded) return <View style={screen.container} />;
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={screen.container} contentContainerStyle={screen.content} keyboardShouldPersistTaps="handled">
@@ -305,124 +310,128 @@ export default function SettingsScreen() {
         />
         <Button title="Save credentials" variant="secondary" onPress={save} disabled={!dirty || syncing} />
 
-        <View style={screen.divider} />
-
-        <Text style={screen.sectionTitle}>Library</Text>
-        <Text style={screen.help}>
-          {connected ? 'Connected' : 'Not connected, syncing will ask you to log in'}
-          {stats ? ` · Last sync ${stats.lastSync ? formatRelativeDateTime(stats.lastSync) : 'never'}` : ''}
-        </Text>
-
-        {stats && (
-          <>
-            <View style={screen.tiles}>
-              <StatTile value={stats.artists} label="artists" />
-              <StatTile value={stats.albums} label="releases" />
-              <StatTile value={stats.tracks} label="songs" />
-            </View>
-
-            <FreshnessBar stats={stats} />
-          </>
-        )}
-
-        <Button
-          title={
-            rateLimitedUntil && !syncing
-              ? `Sync available ${formatRelativeDateTime(rateLimitedUntil)}`
-              : 'Sync library from Spotify'
-          }
-          onPress={sync}
-          loading={syncing}
-          disabled={!hasCreds || dirty || syncing || clearing || rateLimitedUntil !== null}
-        />
-        {progress && <SyncStatus progress={progress} />}
-        {!hasCreds && <Text style={screen.help}>Save your Client ID and Client Secret first.</Text>}
-        {dirty && hasCreds && <Text style={screen.help}>Save your changed credentials first.</Text>}
-
-        {background && (
-          <Pressable
-            onPress={toggleBackground}
-            disabled={!background.available || togglingBackground}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: background.enabled, disabled: !background.available }}
-            style={({ pressed }) => [screen.checkRow, pressed && screen.redirectPressed]}
-          >
-            <Ionicons
-              name={background.enabled ? 'checkbox' : 'square-outline'}
-              size={24}
-              color={background.enabled ? colors.accent : colors.textMuted}
-            />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={screen.checkTitle}>Background sync</Text>
-              <Text style={screen.help}>
-                {background.available
-                  ? 'Updates your library about twice a day'
-                  : 'Background tasks are not available on this device.'}
-              </Text>
-              {background.status && (
-                <Text style={screen.help}>
-                  Last run {formatRelativeDateTime(background.status.at)} · {background.status.message}
-                </Text>
-              )}
-            </View>
-            {background.available && (
-              <Pressable
-                onPress={explainBackgroundSync}
-                hitSlop={12}
-                accessibilityRole="button"
-                accessibilityLabel="About background sync"
-              >
-                <Ionicons name="information-circle-outline" size={22} color={colors.textMuted} />
-              </Pressable>
-            )}
-          </Pressable>
-        )}
-
-        <View style={screen.divider} />
-        <Text style={screen.sectionTitle}>Backup</Text>
-        <Text style={screen.help}>
-          Move your synced library to another phone: export it to a file, then import that file there. Your Spotify
-          credentials and login are not included.
-        </Text>
-        <View style={screen.buttonRow}>
-          <View style={{ flex: 1 }}>
-            <Button
-              title="Export"
-              variant="secondary"
-              onPress={exportBackup}
-              loading={backingUp === 'export'}
-              disabled={!hasLibrary || syncing || clearing || backingUp !== null}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Button
-              title="Import"
-              variant="secondary"
-              onPress={importBackup}
-              loading={backingUp === 'import'}
-              disabled={syncing || clearing || backingUp !== null}
-            />
-          </View>
-        </View>
-
-        {(connected || hasLibrary) && (
+        {/* Everything else needs the Spotify app, so it only appears once its credentials are saved. */}
+        {hasCreds && (
           <>
             <View style={screen.divider} />
-            <Text style={screen.sectionTitle}>Reset</Text>
+
+            <Text style={screen.sectionTitle}>Library</Text>
             <Text style={screen.help}>
-              Log out of Spotify, or delete everything synced to this phone. Your credentials and filters are kept.
+              {connected ? 'Connected' : 'Not connected, syncing will ask you to log in'}
+              {stats ? ` · Last sync ${stats.lastSync ? formatRelativeDateTime(stats.lastSync) : 'never'}` : ''}
             </Text>
-            {connected && (
-              <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
+
+            {stats && (
+              <>
+                <View style={screen.tiles}>
+                  <StatTile value={stats.artists} label="artists" />
+                  <StatTile value={stats.albums} label="releases" />
+                  <StatTile value={stats.tracks} label="songs" />
+                </View>
+
+                <FreshnessBar stats={stats} />
+              </>
             )}
-            {hasLibrary && (
-              <Button
-                title="Clear library"
-                variant="danger"
-                onPress={confirmClearLibrary}
-                loading={clearing}
-                disabled={syncing || clearing}
-              />
+
+            <Button
+              title={
+                rateLimitedUntil && !syncing
+                  ? `Sync available ${formatRelativeDateTime(rateLimitedUntil)}`
+                  : 'Sync library from Spotify'
+              }
+              onPress={sync}
+              loading={syncing}
+              disabled={dirty || syncing || clearing || rateLimitedUntil !== null}
+            />
+            {progress && <SyncStatus progress={progress} />}
+            {dirty && <Text style={screen.help}>Save your changed credentials first.</Text>}
+
+            {background && (
+              <Pressable
+                onPress={toggleBackground}
+                disabled={!background.available || togglingBackground}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: background.enabled, disabled: !background.available }}
+                style={({ pressed }) => [screen.checkRow, pressed && screen.redirectPressed]}
+              >
+                <Ionicons
+                  name={background.enabled ? 'checkbox' : 'square-outline'}
+                  size={24}
+                  color={background.enabled ? colors.accent : colors.textMuted}
+                />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={screen.checkTitle}>Background sync</Text>
+                  <Text style={screen.help}>
+                    {background.available
+                      ? 'Updates your library about twice a day'
+                      : 'Background tasks are not available on this device.'}
+                  </Text>
+                  {background.status && (
+                    <Text style={screen.help}>
+                      Last run {formatRelativeDateTime(background.status.at)} · {background.status.message}
+                    </Text>
+                  )}
+                </View>
+                {background.available && (
+                  <Pressable
+                    onPress={explainBackgroundSync}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel="About background sync"
+                  >
+                    <Ionicons name="information-circle-outline" size={22} color={colors.textMuted} />
+                  </Pressable>
+                )}
+              </Pressable>
+            )}
+
+            <View style={screen.divider} />
+            <Text style={screen.sectionTitle}>Backup</Text>
+            <Text style={screen.help}>
+              Move your synced library to another phone: export it to a file, then import that file there. Your Spotify
+              credentials and login are not included.
+            </Text>
+            <View style={screen.buttonRow}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  title="Export"
+                  variant="secondary"
+                  onPress={exportBackup}
+                  loading={backingUp === 'export'}
+                  disabled={!hasLibrary || syncing || clearing || backingUp !== null}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  title="Import"
+                  variant="secondary"
+                  onPress={importBackup}
+                  loading={backingUp === 'import'}
+                  disabled={syncing || clearing || backingUp !== null}
+                />
+              </View>
+            </View>
+
+            {(connected || hasLibrary) && (
+              <>
+                <View style={screen.divider} />
+                <Text style={screen.sectionTitle}>Reset</Text>
+                <Text style={screen.help}>
+                  Log out of Spotify, or delete everything synced to this phone. Your credentials and filters are kept.
+                </Text>
+                {connected && (
+                  <Button title="Disconnect Spotify account" variant="danger" onPress={disconnect} disabled={syncing} />
+                )}
+                {hasLibrary && (
+                  <Button
+                    title="Clear library"
+                    variant="danger"
+                    onPress={confirmClearLibrary}
+                    loading={clearing}
+                    disabled={syncing || clearing}
+                  />
+                )}
+              </>
             )}
           </>
         )}
