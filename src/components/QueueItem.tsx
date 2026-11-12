@@ -55,7 +55,9 @@ export function QueueItem({ item, index, current, isPlaying, onLongPress, style,
           />
         </View>
       ) : (
-        <Text style={row.index}>{index + 1}</Text>
+        <Text style={row.index} numberOfLines={1}>
+          {index + 1}
+        </Text>
       )}
       <Artwork uri={item.image_url} size={44} fadeIn={!onCoverShown} onDisplay={onCoverShown} />
       <View style={row.text}>
@@ -74,8 +76,9 @@ export function QueueItem({ item, index, current, isPlaying, onLongPress, style,
 const row = StyleSheet.create({
   container: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
   current: { backgroundColor: colors.surface },
-  index: { color: colors.textMuted, width: 22, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  indexIcon: { width: 22, alignItems: 'flex-end' },
+  // Wide enough for three digits (the queue holds up to 100 songs); the icon column matches it.
+  index: { color: colors.textMuted, width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  indexIcon: { width: 28, alignItems: 'flex-end' },
   text: { flex: 1 },
   title: { color: colors.text, fontSize: 15, fontWeight: '600' },
   subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
