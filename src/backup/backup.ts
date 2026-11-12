@@ -3,6 +3,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { invalidateShuffleCandidates } from '@/db/queries';
 import { getStoredPlaylistId, restorePlaylistId } from '@/spotify/playback';
 
 /**
@@ -393,5 +394,7 @@ export async function importLibrary(db: SQLiteDatabase, backup: Backup): Promise
       await txn.runAsync(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync', ?)`, backup.lastSync);
     }
   });
+  // An imported library can look the same as the old one to the shuffle's change check.
+  invalidateShuffleCandidates();
   if (backup.playlistId) await restorePlaylistId(backup.playlistId);
 }

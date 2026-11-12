@@ -308,61 +308,89 @@ function passesShuffleFilters(track: ShuffleCandidate, filters: ShuffleFilters, 
 }
 
 /**
- * Songs the shuffle may pick, with the filters applied in JS.
- * Without `artistId`: every song except those only on excluded artists' releases.
- * With `artistId`: only songs on that artist's releases (the same songs as their artist page),
+ * Songs on one artist's releases (the same songs as their artist page), with the filters applied,
  * whether or not the artist is excluded from the normal shuffle.
  */
-async function getShuffleCandidates(
+async function getArtistShuffleCandidates(
   db: SQLiteDatabase,
   filters: ShuffleFilters,
-  artistId?: string,
+  artistId: string,
 ): Promise<ShuffleCandidate[]> {
-  const select = `SELECT t.id, t.album_id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+  const rows = await db.getAllAsync<ShuffleCandidate>(
+    `SELECT t.id, t.album_id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
             al.total_tracks AS album_total_tracks
      FROM tracks t
-     JOIN albums al ON al.id = t.album_id`;
-  const rows = artistId
-    ? await db.getAllAsync<ShuffleCandidate>(
-        `${select}
-         WHERE t.album_id IN (SELECT album_id FROM artist_albums WHERE artist_id = ?)`,
-        artistId,
-      )
-    : await db.getAllAsync<ShuffleCandidate>(`${select} WHERE ${SHUFFLE_TRACKS_WHERE}`);
+     JOIN albums al ON al.id = t.album_id
+     WHERE t.album_id IN (SELECT album_id FROM artist_albums WHERE artist_id = ?)`,
+    artistId,
+  );
   const ctx = await loadFilterContext(db, filters);
   return rows.filter((t) => passesShuffleFilters(t, filters, ctx));
 }
 
+/** What the normal shuffle draws from, with excluded artists left out and the filters applied. */
+type ShuffleCandidates = {
+  /** Every song once. */
+  songs: ShuffleCandidate[];
+  /** The songs grouped by followed artist; a song on a release shared by several artists is in each group. */
+  byArtist: ShuffleCandidate[][];
+};
+
 /**
- * The shuffle candidates grouped by followed artist (excluded artists left out, filters applied).
- * A song on a release shared by several included artists is in each of their groups.
+ * Changes whenever the shuffle candidates can have changed: songs, releases or artist links added or
+ * removed, an artist (re)synced (which also covers renamed songs), or the excluded artists changed.
+ * Cheap compared with loading every song.
  */
-async function getShuffleCandidatesByArtist(
-  db: SQLiteDatabase,
-  filters: ShuffleFilters,
-): Promise<ShuffleCandidate[][]> {
-  const rows = await db.getAllAsync<ShuffleCandidate & { artist_id: string }>(
-    `SELECT t.id, t.album_id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
-            al.total_tracks AS album_total_tracks, aa.artist_id
-     FROM tracks t
-     JOIN albums al ON al.id = t.album_id
-     JOIN artist_albums aa ON aa.album_id = t.album_id
-     WHERE aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)`,
-  );
-  const ctx = await loadFilterContext(db, filters);
+const LIBRARY_SIGNATURE_SQL = `
+  SELECT (SELECT COUNT(*) FROM tracks) || '|' || (SELECT COUNT(*) FROM albums) || '|' ||
+         (SELECT COUNT(*) FROM artist_albums) || '|' || IFNULL((SELECT MAX(albums_synced_at) FROM artists), '') || '|' ||
+         IFNULL((SELECT group_concat(artist_id) FROM (SELECT artist_id FROM excluded_artists ORDER BY artist_id)), '')
+    AS signature`;
+
+/**
+ * The last loaded candidates. Loading every song takes a noticeable moment on a phone, so they are kept
+ * and reused (e.g. by Shuffle after the Queue tab counted them) while the library and filters stay the same.
+ */
+let candidateCache: { key: string; candidates: ShuffleCandidates } | null = null;
+
+/** Drops the kept shuffle candidates, for changes the library signature may not show (import, clear). */
+export function invalidateShuffleCandidates(): void {
+  candidateCache = null;
+}
+
+async function getShuffleCandidates(db: SQLiteDatabase, filters: ShuffleFilters): Promise<ShuffleCandidates> {
+  const row = await db.getFirstAsync<{ signature: string }>(LIBRARY_SIGNATURE_SQL);
+  const key = `${row?.signature ?? ''}#${JSON.stringify(filters)}`;
+  if (candidateCache?.key === key) return candidateCache.candidates;
+
+  const [rows, ctx] = await Promise.all([
+    db.getAllAsync<ShuffleCandidate & { artist_id: string }>(
+      `SELECT t.id, t.album_id, t.name, t.artists, t.disc_number, t.track_number, t.duration_ms,
+              al.total_tracks AS album_total_tracks, aa.artist_id
+       FROM tracks t
+       JOIN albums al ON al.id = t.album_id
+       JOIN artist_albums aa ON aa.album_id = t.album_id
+       WHERE aa.artist_id NOT IN (SELECT artist_id FROM excluded_artists)`,
+    ),
+    loadFilterContext(db, filters),
+  ]);
+  const songs = new Map<string, ShuffleCandidate>();
   const byArtist = new Map<string, ShuffleCandidate[]>();
   for (const row of rows) {
     if (!passesShuffleFilters(row, filters, ctx)) continue;
+    if (!songs.has(row.id)) songs.set(row.id, row);
     const list = byArtist.get(row.artist_id);
     if (list) list.push(row);
     else byArtist.set(row.artist_id, [row]);
   }
-  return [...byArtist.values()];
+  const candidates = { songs: [...songs.values()], byArtist: [...byArtist.values()] };
+  candidateCache = { key, candidates };
+  return candidates;
 }
 
 /** Number of stored songs the shuffle can draw from (excluded artists and filters applied). */
 export async function countShuffleTracks(db: SQLiteDatabase, filters: ShuffleFilters): Promise<number> {
-  return (await getShuffleCandidates(db, filters)).length;
+  return (await getShuffleCandidates(db, filters)).songs.length;
 }
 
 export type AlbumWithTracks = AlbumRow & { tracks: TrackRow[] };
@@ -474,10 +502,12 @@ export async function generateShuffledQueue(
   { artistId, weighting = DEFAULT_ARTIST_WEIGHTING }: { artistId?: string; weighting?: ArtistWeighting } = {},
 ): Promise<number> {
   let picked: ShuffleCandidate[];
-  if (artistId || weighting === 'song') {
-    picked = pickRandomUnique(await getShuffleCandidates(db, filters, artistId), MAX_QUEUE_SIZE, songKey);
+  if (artistId) {
+    picked = pickRandomUnique(await getArtistShuffleCandidates(db, filters, artistId), MAX_QUEUE_SIZE, songKey);
+  } else if (weighting === 'song') {
+    picked = pickRandomUnique((await getShuffleCandidates(db, filters)).songs, MAX_QUEUE_SIZE, songKey);
   } else {
-    const groups = (await getShuffleCandidatesByArtist(db, filters)).map((items) => ({
+    const groups = (await getShuffleCandidates(db, filters)).byArtist.map((items) => ({
       weight: weighting === 'balanced' ? Math.sqrt(items.length) : 1,
       items,
     }));
@@ -486,12 +516,12 @@ export async function generateShuffledQueue(
 
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync('DELETE FROM queue');
-    const stmt = await txn.prepareAsync('INSERT INTO queue (position, track_id) VALUES (?, ?)');
-    try {
-      for (let i = 0; i < picked.length; i++) await stmt.executeAsync(i, picked[i].id);
-    } finally {
-      await stmt.finalizeAsync();
-    }
+    if (picked.length === 0) return;
+    // One statement for all songs (at most 2 × MAX_QUEUE_SIZE parameters) instead of one per song.
+    await txn.runAsync(
+      `INSERT INTO queue (position, track_id) VALUES ${picked.map(() => '(?, ?)').join(', ')}`,
+      picked.flatMap((t, i) => [i, t.id]),
+    );
   });
   return picked.length;
 }
@@ -565,6 +595,7 @@ export async function clearLibrary(db: SQLiteDatabase): Promise<void> {
       DELETE FROM meta WHERE key NOT LIKE 'filter!_%' ESCAPE '!';
     `);
   });
+  invalidateShuffleCandidates();
 }
 
 // ---------------------------------------------------------------- meta

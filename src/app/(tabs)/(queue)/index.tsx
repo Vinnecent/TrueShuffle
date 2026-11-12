@@ -87,7 +87,8 @@ export default function QueueScreen() {
     setShuffling(true);
     try {
       await generateShuffledQueue(db, filters, { weighting });
-      await load();
+      // Only the queue changed; the library, filters and "drawn from" count stay the same.
+      setQueue(await getQueue(db));
     } finally {
       setShuffling(false);
     }
