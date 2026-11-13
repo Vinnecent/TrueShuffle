@@ -10,6 +10,9 @@ import { colors, formatDuration } from '@/theme';
 /** How long a row is held before its menu opens (React Native's default is 500 ms). */
 const LONG_PRESS_MS = 300;
 
+/** Fixed height of a queue row (44pt cover + 2×8pt padding), so the list knows its full length up front. */
+export const QUEUE_ROW_HEIGHT = 60;
+
 /** Where a row is on screen, in window coordinates. */
 export type RowLayout = { x: number; y: number; width: number; height: number };
 
@@ -100,13 +103,21 @@ export const QueueItem = memo(
 
 const row = StyleSheet.create({
   hidden: { opacity: 0 },
-  container: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: QUEUE_ROW_HEIGHT,
+    gap: 12,
+  },
   current: { backgroundColor: colors.surface },
   // Wide enough for three digits (the queue holds up to 100 songs); the icon column matches it.
   index: { color: colors.textMuted, width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] },
   indexIcon: { width: 28, alignItems: 'flex-end' },
   text: { flex: 1 },
-  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  // Fixed line heights keep the text (20 + 2 + 18) inside the row's fixed height.
+  title: { color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '600' },
+  subtitle: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: 2 },
   duration: { color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
 });

@@ -7,7 +7,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { activeFilterCount, FilterSheet } from '@/components/FilterSheet';
 import { NowPlaying } from '@/components/NowPlaying';
-import { QueueItem, type RowLayout } from '@/components/QueueItem';
+import { QUEUE_ROW_HEIGHT, QueueItem, type RowLayout } from '@/components/QueueItem';
 import { QueueItemMenu, type QueueMenuTarget } from '@/components/QueueItemMenu';
 import { Button, EmptyState, styles as ui } from '@/components/ui';
 import {
@@ -39,6 +39,13 @@ import {
   sendToSpotifyPlaylist,
 } from '@/spotify/playback';
 import { colors } from '@/theme';
+
+/** Every row has the same height, so the list can place all rows (and size its scrollbar) without measuring them. */
+const getItemLayout = (_: ArrayLike<QueueRow> | null | undefined, index: number) => ({
+  length: QUEUE_ROW_HEIGHT,
+  offset: QUEUE_ROW_HEIGHT * index,
+  index,
+});
 
 /** How long the list gets to scroll a long-pressed row into view before its menu opens. */
 const SCROLL_INTO_VIEW_MS = 300;
@@ -265,6 +272,7 @@ export default function QueueScreen() {
       <View ref={listFrameRef} style={{ flex: 1, paddingHorizontal: 8 }} collapsable={false}>
         <FlatList
           ref={listRef}
+          getItemLayout={getItemLayout}
           // Scrolling by code (a row into view) still works while touch scrolling is off.
           scrollEnabled={!menuActive}
           data={queue}

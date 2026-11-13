@@ -24,6 +24,14 @@ const TYPE_LABEL = {
 
 const isKnownType = (type: string): type is keyof typeof TYPE_LABEL => type in TYPE_LABEL;
 
+/**
+ * Fixed heights of the list's parts, so it knows its full length up front (a correct scrollbar from the start).
+ * Release header: 24 top + 64 cover + 8 bottom padding; the text beside the cover (2 × 22 + 3 + 17) fits in 64.
+ * Song row: 8 + 20 + 2 + 16 + 8.
+ */
+const ALBUM_HEADER_HEIGHT = 96;
+const TRACK_HEIGHT = 54;
+
 export default function ArtistDetailScreen() {
   const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -79,6 +87,27 @@ export default function ArtistDetailScreen() {
 
   const hasSongs = useMemo(() => (albums ?? []).some((a) => a.tracks.length > 0), [albums]);
   const sections = useMemo(() => (albums ?? []).map((album) => ({ album, data: album.tracks })), [albums]);
+  // The exclude/shuffle box above the releases wraps differently per language and screen, so it is measured.
+  const [listHeaderHeight, setListHeaderHeight] = useState(0);
+
+  /**
+   * Position of every list element. The SectionList counts each section as its header, its songs and a
+   * (here empty) footer; offsets start below the list header.
+   */
+  const layouts = useMemo(() => {
+    const out: { length: number; offset: number }[] = [];
+    let offset = listHeaderHeight;
+    for (const section of sections) {
+      out.push({ length: ALBUM_HEADER_HEIGHT, offset });
+      offset += ALBUM_HEADER_HEIGHT;
+      for (let i = 0; i < section.data.length; i++) {
+        out.push({ length: TRACK_HEIGHT, offset });
+        offset += TRACK_HEIGHT;
+      }
+      out.push({ length: 0, offset });
+    }
+    return out;
+  }, [sections, listHeaderHeight]);
 
   return (
     <View style={screen.container}>
@@ -87,10 +116,11 @@ export default function ArtistDetailScreen() {
         sections={sections}
         keyExtractor={(t) => t.id}
         stickySectionHeadersEnabled={false}
+        getItemLayout={(_, index) => ({ ...(layouts[index] ?? { length: 0, offset: 0 }), index })}
         contentContainerStyle={{ flexGrow: 1 }}
         ListHeaderComponent={
           excluded === null ? undefined : (
-            <View style={screen.header}>
+            <View style={screen.header} onLayout={(e) => setListHeaderHeight(e.nativeEvent.layout.height)}>
               <Pressable
                 onPress={toggleExcluded}
                 accessibilityRole="checkbox"
@@ -190,12 +220,13 @@ const screen = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 24,
     paddingBottom: 8,
+    height: ALBUM_HEADER_HEIGHT,
   },
-  albumName: { color: colors.text, fontSize: 17, fontWeight: '700' },
-  albumMeta: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
-  track: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 8 },
+  albumName: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '700' },
+  albumMeta: { color: colors.textMuted, fontSize: 13, lineHeight: 17, marginTop: 3 },
+  track: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: TRACK_HEIGHT },
   trackNo: { color: colors.textMuted, width: 22, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  trackName: { color: colors.text, fontSize: 15 },
-  trackArtists: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  trackName: { color: colors.text, fontSize: 15, lineHeight: 20 },
+  trackArtists: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: 2 },
   duration: { color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
 });
