@@ -252,6 +252,7 @@ export const en = {
   },
   genres: {
     search: 'Search {{what}}',
+    hint: 'Tap a genre to shuffle its songs.',
     shuffleLabel: 'Shuffle {{genre}}',
     noMatches: 'No matching genres',
     nothingToShuffleTitle: 'Nothing to shuffle',

@@ -255,6 +255,7 @@ export const de: Translations = {
   },
   genres: {
     search: '{{what}} suchen',
+    hint: 'Tippe auf ein Genre, um seine Songs zu mischen.',
     shuffleLabel: '{{genre}} mischen',
     noMatches: 'Keine passenden Genres',
     nothingToShuffleTitle: 'Nichts zum Mischen',
