@@ -67,6 +67,8 @@ export const de: Translations = {
   queueMenu: {
     close: 'Menü schließen',
     remove: 'Aus der Warteschlange entfernen',
+    shuffleArtist: '{{name}} mischen',
+    shuffleArtistHelp: 'Ersetzt die Warteschlange durch Songs nur von diesem Künstler',
     exclude: '{{name}} ausschließen',
     excludeHelp: 'Lässt die Songs beim Mischen weg und entfernt sie aus dieser Warteschlange',
   },

@@ -19,7 +19,7 @@ import {
   getLibraryStats,
   getQueue,
   getArtistWeighting,
-  getExcludableArtistsForTrack,
+  getArtistsForTrack,
   getShuffleFilters,
   MAX_QUEUE_SIZE,
   removeFromQueue,
@@ -182,7 +182,7 @@ export default function QueueScreen() {
 
   const openMenu = async (item: QueueRow, index: number, layout: RowLayout) => {
     setMenuActive(true);
-    const [artists, list] = await Promise.all([getExcludableArtistsForTrack(db, item.track_id), measureList()]);
+    const [artists, list] = await Promise.all([getArtistsForTrack(db, item.track_id), measureList()]);
     // A row partly hidden under the header or tab bar is scrolled fully into view first, so the popped-out
     // copy, which is drawn above everything, returns to a spot that is not covered when the menu closes.
     let rowLayout = layout;
@@ -209,6 +209,17 @@ export default function QueueScreen() {
   const excludeArtist = async (artistId: string) => {
     await excludeArtistAndRemoveFromQueue(db, artistId);
     await load();
+  };
+
+  /** Replaces the queue with this artist's songs only (the filters apply), like Shuffle on the artist page. */
+  const shuffleArtist = async (artistId: string) => {
+    const count = await generateShuffledQueue(db, filters, { artistId });
+    if (count === 0) {
+      Alert.alert(t('artist.nothingToShuffleTitle'), t('artist.nothingToShuffleText'));
+      return;
+    }
+    setQueue(await getQueue(db));
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
   };
 
   if (libraryTracks === null) return <View style={screen.container} />;
@@ -320,6 +331,7 @@ export default function QueueScreen() {
           target={menu}
           onRemove={remove}
           onExclude={excludeArtist}
+          onShuffleArtist={shuffleArtist}
           onPopped={() => setHiddenPosition(menu.item.position)}
           onSettled={() => setHiddenPosition(null)}
           onClose={() => {

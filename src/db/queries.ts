@@ -563,22 +563,23 @@ export async function setArtistExcluded(db: SQLiteDatabase, artistId: string, ex
 }
 
 /**
- * The followed, not yet excluded artists a queued song belongs to (through its release), i.e. the
- * artists that can be excluded from it. Usually one; a split release can have several.
+ * The followed artists a queued song belongs to (through its release), with whether each is excluded from the
+ * shuffle. Usually one; a split release can have several.
  */
-export function getExcludableArtistsForTrack(
+export async function getArtistsForTrack(
   db: SQLiteDatabase,
   trackId: string,
-): Promise<{ id: string; name: string }[]> {
-  return db.getAllAsync(
-    `SELECT ar.id, ar.name
+): Promise<{ id: string; name: string; excluded: boolean }[]> {
+  const rows = await db.getAllAsync<{ id: string; name: string; excluded: number }>(
+    `SELECT ar.id, ar.name, EXISTS (SELECT 1 FROM excluded_artists e WHERE e.artist_id = ar.id) AS excluded
      FROM tracks t
      JOIN artist_albums aa ON aa.album_id = t.album_id
      JOIN artists ar       ON ar.id = aa.artist_id
-     WHERE t.id = ? AND ar.id NOT IN (SELECT artist_id FROM excluded_artists)
+     WHERE t.id = ?
      ORDER BY ar.name COLLATE NOCASE`,
     trackId,
   );
+  return rows.map((r) => ({ ...r, excluded: r.excluded === 1 }));
 }
 
 /**

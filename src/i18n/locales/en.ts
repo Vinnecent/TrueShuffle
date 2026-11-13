@@ -70,6 +70,8 @@ export const en = {
   queueMenu: {
     close: 'Close menu',
     remove: 'Remove from queue',
+    shuffleArtist: 'Shuffle {{name}}',
+    shuffleArtistHelp: 'Replaces the queue with songs by this artist only',
     exclude: 'Exclude {{name}}',
     excludeHelp: 'Leaves their songs out of the shuffle and removes them from this queue',
   },

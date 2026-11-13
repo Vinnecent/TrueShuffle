@@ -16,14 +16,16 @@ export type QueueMenuTarget = {
   isPlaying: boolean;
   /** Where the long-pressed row is on screen; the popped-out copy starts there. */
   layout: RowLayout;
-  /** Followed artists of the song that can still be excluded (usually one). */
-  artists: { id: string; name: string }[];
+  /** Followed artists of the song (usually one); excluded ones can be shuffled but not excluded again. */
+  artists: { id: string; name: string; excluded: boolean }[];
 };
 
 type Props = {
   target: QueueMenuTarget;
   onRemove: (item: QueueRow) => void;
   onExclude: (artistId: string) => void;
+  /** Replace the queue with a shuffle of only this artist's songs. */
+  onShuffleArtist: (artistId: string) => void;
   /** The popped-out copy is back over the original row: show the original again. */
   onSettled: () => void;
   onClose: () => void;
@@ -50,7 +52,7 @@ const GAP = 8;
  * Drawn in the app's overlay layer (same window as the list, not a Modal), so the list is usable again in the
  * frame the menu goes.
  */
-export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose, onPopped }: Props) {
+export function QueueItemMenu({ target, onRemove, onExclude, onShuffleArtist, onSettled, onClose, onPopped }: Props) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { item, index, current, isPlaying, layout, artists } = target;
@@ -185,14 +187,25 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
             />
             {artists.map((artist) => (
               <MenuOption
-                key={artist.id}
-                icon="ban-outline"
-                label={t('queueMenu.exclude', { name: artist.name })}
-                help={t('queueMenu.excludeHelp')}
-                danger
-                onPress={() => choose(() => onExclude(artist.id))}
+                key={`shuffle-${artist.id}`}
+                icon="shuffle"
+                label={t('queueMenu.shuffleArtist', { name: artist.name })}
+                help={t('queueMenu.shuffleArtistHelp')}
+                onPress={() => choose(() => onShuffleArtist(artist.id))}
               />
             ))}
+            {artists
+              .filter((artist) => !artist.excluded)
+              .map((artist) => (
+                <MenuOption
+                  key={`exclude-${artist.id}`}
+                  icon="ban-outline"
+                  label={t('queueMenu.exclude', { name: artist.name })}
+                  help={t('queueMenu.excludeHelp')}
+                  danger
+                  onPress={() => choose(() => onExclude(artist.id))}
+                />
+              ))}
           </Animated.View>
         </Animated.View>
       </Animated.View>
