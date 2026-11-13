@@ -57,6 +57,11 @@ export default function QueueScreen() {
   const [shuffling, setShuffling] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [menu, setMenu] = useState<QueueMenuTarget | null>(null);
+  /**
+   * From the long press until the menu has closed. The list must not scroll by touch meanwhile: the finger that
+   * started the long press still belongs to the list and would otherwise scroll it under the menu.
+   */
+  const [menuActive, setMenuActive] = useState(false);
   /** Queue position of the row the menu shows a copy of; hidden in the list meanwhile. */
   const [hiddenPosition, setHiddenPosition] = useState<number | null>(null);
   const activeFilters = activeFilterCount(filters, weighting);
@@ -169,6 +174,7 @@ export default function QueueScreen() {
     });
 
   const openMenu = async (item: QueueRow, index: number, layout: RowLayout) => {
+    setMenuActive(true);
     const [artists, list] = await Promise.all([getExcludableArtistsForTrack(db, item.track_id), measureList()]);
     // A row partly hidden under the header or tab bar is scrolled fully into view first, so the popped-out
     // copy, which is drawn above everything, returns to a spot that is not covered when the menu closes.
@@ -259,6 +265,8 @@ export default function QueueScreen() {
       <View ref={listFrameRef} style={{ flex: 1, paddingHorizontal: 8 }} collapsable={false}>
         <FlatList
           ref={listRef}
+          // Scrolling by code (a row into view) still works while touch scrolling is off.
+          scrollEnabled={!menuActive}
           data={queue}
           onScroll={(e) => {
             scroll.current.offset = e.nativeEvent.contentOffset.y;
@@ -306,7 +314,10 @@ export default function QueueScreen() {
           onExclude={excludeArtist}
           onPopped={() => setHiddenPosition(menu.item.position)}
           onSettled={() => setHiddenPosition(null)}
-          onClose={() => setMenu(null)}
+          onClose={() => {
+            setMenu(null);
+            setMenuActive(false);
+          }}
         />
       ) : null}
 
