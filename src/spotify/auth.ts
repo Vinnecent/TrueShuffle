@@ -16,12 +16,16 @@ const discovery: AuthSession.DiscoveryDocument = {
 
 /**
  * user-follow-read: list followed artists.
+ * user-follow-modify / user-library-modify: follow an artist found with the Spotify search on the Artists tab
+ *   (saved through the library endpoint, whose docs list both scopes without saying which one artists need).
  * playlist-modify-private / playlist-read-private: create and fill the private "TrueShuffle" playlist,
  *   and check it still exists in the user's library.
  * *-playback-state: optionally start playing that playlist (Premium only).
  */
 export const SCOPES = [
   'user-follow-read',
+  'user-follow-modify',
+  'user-library-modify',
   'playlist-modify-private',
   'playlist-read-private',
   'user-read-playback-state',

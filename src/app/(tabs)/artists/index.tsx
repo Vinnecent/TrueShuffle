@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { SpotifyArtistSearch } from '@/components/SpotifyArtistSearch';
 import { Artwork, Button, EmptyState, styles as ui } from '@/components/ui';
 import { getArtists, type ArtistRow } from '@/db/queries';
 import { colors, countLabel } from '@/theme';
@@ -27,11 +28,13 @@ export default function ArtistsScreen() {
   const [filter, setFilter] = useState('');
   const [onlyExcluded, setOnlyExcluded] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      getArtists(db).then(setArtists);
-    }, [db]),
-  );
+  const reload = useCallback(() => {
+    getArtists(db).then(setArtists);
+  }, [db]);
+
+  useFocusEffect(reload);
+  // While searching (not in the excluded-only view), offer to look the name up on Spotify below the matches.
+  const searching = filter.trim() !== '' && !onlyExcluded;
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -96,10 +99,14 @@ export default function ArtistsScreen() {
             <EmptyState title={t('artists.noExcludedTitle')}>
               <Text style={ui.muted}>{t('artists.noExcludedText')}</Text>
             </EmptyState>
+          ) : searching ? (
+            // Small, so the Spotify search below stays in view.
+            <Text style={screen.noMatches}>{t('artists.noMatches')}</Text>
           ) : (
             <EmptyState title={t('artists.noMatches')} />
           )
         }
+        ListFooterComponent={searching ? <SpotifyArtistSearch query={filter} onFollowed={reload} /> : undefined}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => router.push({ pathname: '/artists/[id]', params: { id: item.id } })}
@@ -124,6 +131,7 @@ export default function ArtistsScreen() {
 
 const screen = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  noMatches: { color: colors.textMuted, fontSize: 14, paddingHorizontal: 16, paddingTop: 8 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 8, marginBottom: 8 },
   search: {
     flex: 1,

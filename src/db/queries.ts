@@ -527,6 +527,33 @@ export async function generateShuffledQueue(
   return picked.length;
 }
 
+/**
+ * Adds an artist the user just followed (from the Spotify search) without waiting for the next sync. It is
+ * stored as never scanned, so the next sync fetches its releases first.
+ */
+export async function addFollowedArtist(
+  db: SQLiteDatabase,
+  artist: { id: string; name: string; image_url: string | null },
+): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO artists (id, name, image_url) VALUES (?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, image_url = excluded.image_url`,
+    artist.id,
+    artist.name,
+    artist.image_url,
+  );
+}
+
+/** IDs of the given artists that are already in the library (followed as of the last sync). */
+export async function getKnownArtistIds(db: SQLiteDatabase, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM artists WHERE id IN (${ids.map(() => '?').join(', ')})`,
+    ids,
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
 export async function setArtistExcluded(db: SQLiteDatabase, artistId: string, excluded: boolean) {
   if (excluded) {
     await db.runAsync('INSERT OR IGNORE INTO excluded_artists (artist_id) VALUES (?)', artistId);

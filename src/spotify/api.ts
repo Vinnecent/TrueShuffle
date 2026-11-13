@@ -244,6 +244,22 @@ export function getArtistAlbums(artistId: string): Promise<SpotifyAlbum[]> {
   );
 }
 
+/** Artists matching `query` in Spotify's search, best match first (at most 10 for Development Mode apps). */
+export async function searchArtists(query: string, limit = 5): Promise<SpotifyArtist[]> {
+  const params = new URLSearchParams({ q: query, type: 'artist', limit: String(limit) });
+  const res = await spotifyFetch<{ artists: Paging<SpotifyArtist> }>(`/search?${params}`);
+  return res?.artists.items ?? [];
+}
+
+/**
+ * Follows an artist for the logged-in user. Spotify replaced "Follow Artists" (PUT /me/following) with
+ * "Save Items to Library" in 2026; an artist is saved by its URI.
+ */
+export async function followArtist(artistId: string): Promise<void> {
+  const uris = encodeURIComponent(`spotify:artist:${artistId}`);
+  await spotifyFetch(`/me/library?uris=${uris}`, { method: 'PUT' });
+}
+
 export async function getAlbumTracks(albumId: string): Promise<SpotifyTrack[]> {
   const tracks = await getAllPages<SpotifyTrack>(`/albums/${albumId}/tracks?market=from_token&limit=50`);
   return tracks.filter((t) => t.id && !t.is_local && t.is_playable !== false);
