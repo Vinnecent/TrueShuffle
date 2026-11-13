@@ -58,6 +58,24 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       artist_id TEXT PRIMARY KEY NOT NULL REFERENCES artists(id) ON DELETE CASCADE
     );
 
+    -- Genres per artist (lower case): from Spotify, saved with the followed artists on every sync, and from
+    -- MusicBrainz (Settings → Sync genres). Songs get the genres of the artists whose releases they are on.
+    CREATE TABLE IF NOT EXISTS artist_genres (
+      artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+      genre     TEXT NOT NULL,
+      source    TEXT NOT NULL,                -- 'spotify' | 'musicbrainz'
+      PRIMARY KEY (artist_id, genre, source)
+    );
+    CREATE INDEX IF NOT EXISTS idx_artist_genres_genre ON artist_genres(genre);
+
+    -- Artists looked up on MusicBrainz: their MusicBrainz ID (null if MusicBrainz does not know them) and
+    -- when, so a genre sync only looks up new artists and refreshes old lookups.
+    CREATE TABLE IF NOT EXISTS musicbrainz_artists (
+      artist_id TEXT PRIMARY KEY NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+      mbid      TEXT,
+      synced_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY NOT NULL,
       value TEXT

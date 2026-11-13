@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { getMeta, setMeta } from '@/db/queries';
+import { getMeta, replaceArtistGenres, setMeta } from '@/db/queries';
+import { notifyGenresChanged } from '@/genres/events';
 import { t } from '@/i18n';
 import {
   getAlbumTracks,
@@ -157,6 +158,7 @@ export async function syncLibrary(
     report({ phase: 'fetchingArtists' });
     const artists = await getFollowedArtists();
     await withLock(() => saveArtists(db, artists));
+    notifyGenresChanged();
     savedAnything = true;
 
     // 2. Due artists, never scanned first, then oldest scan first.
@@ -249,6 +251,10 @@ async function saveArtists(db: SQLiteDatabase, artists: SpotifyArtist[]) {
       }
     } finally {
       await upsert.finalizeAsync();
+    }
+    // Spotify's genres come with the followed artists for free; only replaced when Spotify sent the field.
+    for (const a of artists) {
+      if (Array.isArray(a.genres)) await replaceArtistGenres(txn, a.id, 'spotify', a.genres);
     }
 
     const followed = new Set(artists.map((a) => a.id));

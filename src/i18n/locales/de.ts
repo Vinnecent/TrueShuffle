@@ -5,6 +5,7 @@ export const de: Translations = {
   tabs: {
     queue: 'Warteschlange',
     artists: 'Künstler',
+    genres: 'Genres',
     settings: 'Einstellungen',
   },
   common: {
@@ -23,6 +24,8 @@ export const de: Translations = {
     song_other: '{{count, number}} Songs',
     excludedArtist_one: '{{count, number}} ausgeschlossenen Künstler',
     excludedArtist_other: '{{count, number}} ausgeschlossene Künstler',
+    genre_one: '{{count, number}} Genre',
+    genre_other: '{{count, number}} Genres',
   },
   date: {
     full: '{{day}}.{{month}}.{{year}} {{time}}',
@@ -230,6 +233,37 @@ export const de: Translations = {
     clearText:
       'Dadurch werden alle synchronisierten Künstler, Veröffentlichungen und Songs, die Warteschlange, der Synchronisierungsfortschritt und die zwischengespeicherten Cover von diesem Handy gelöscht. Deine Spotify-Anmeldung, die Zugangsdaten und die Playlist in Spotify bleiben erhalten.\n\nAlles erneut zu synchronisieren kann wegen der Limits von Spotify mehrere Tage dauern.',
     clearFailed: 'Bibliothek konnte nicht geleert werden',
+
+    genresTitle: 'Genres',
+    genresHelp:
+      'Genres für deine Künstler von Spotify und der freien Datenbank MusicBrainz. Die erste Synchronisierung dauert eine Weile.',
+    genresStored: '{{genres}} von {{artists}}',
+    syncGenres: 'Genres von MusicBrainz synchronisieren',
+    genresProgress: 'Genres werden nachgeschlagen {{done}}/{{total}}',
+    genresDoneTitle: 'Genres synchronisiert',
+    genresDoneText_one: '{{count, number}} Künstler nachgeschlagen; {{found, number}} haben Genres auf MusicBrainz.',
+    genresDoneText_other: '{{count, number}} Künstler nachgeschlagen; {{found, number}} haben Genres auf MusicBrainz.',
+    genresUpToDateTitle: 'Genres sind aktuell',
+    genresUpToDateText: 'Jeder Künstler wurde in den letzten 90 Tagen auf MusicBrainz nachgeschlagen.',
+    genresFailedTitle: 'Genre-Synchronisierung angehalten',
+    genresResumeHint: 'Alles bisher Gefundene ist gespeichert; die nächste Genre-Synchronisierung macht dort weiter.',
+    clearGenres: 'Genres löschen',
+    clearGenresTitle: 'Genres löschen?',
+    clearGenresText:
+      'Dadurch werden alle Genres und MusicBrainz-Abfragen von diesem Handy gelöscht. Die Genres von Spotify kommen mit der nächsten Synchronisierung der Bibliothek zurück; für die MusicBrainz-Genres ist eine neue Genre-Synchronisierung nötig.',
+    clearGenresFailed: 'Genres konnten nicht gelöscht werden',
+  },
+  genres: {
+    search: '{{what}} suchen',
+    shuffleLabel: '{{genre}} mischen',
+    noMatches: 'Keine passenden Genres',
+    nothingToShuffleTitle: 'Nichts zum Mischen',
+    nothingToShuffleText: 'Deine Filter im Tab „Warteschlange“ entfernen jeden Song dieses Genres.',
+    shuffleFailedTitle: 'Mischen fehlgeschlagen',
+    networkError: 'Netzwerkfehler bei der Verbindung mit MusicBrainz: {{message}}',
+    busy: 'MusicBrainz ist gerade ausgelastet. Versuche es später noch einmal.',
+    apiError: 'MusicBrainz-Fehler {{status}}',
+    alreadyRunning: 'Es läuft bereits eine Genre-Synchronisierung.',
   },
   backgroundSync: {
     alreadyRunning: 'Übersprungen: In der App lief bereits eine Synchronisierung.',

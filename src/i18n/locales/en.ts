@@ -8,6 +8,7 @@ export const en = {
   tabs: {
     queue: 'Queue',
     artists: 'Artists',
+    genres: 'Genres',
     settings: 'Settings',
   },
   common: {
@@ -26,6 +27,8 @@ export const en = {
     song_other: '{{count, number}} songs',
     excludedArtist_one: '{{count, number}} excluded artist',
     excludedArtist_other: '{{count, number}} excluded artists',
+    genre_one: '{{count, number}} genre',
+    genre_other: '{{count, number}} genres',
   },
   date: {
     /** Full date and time; day, month and year are already two/four digits. */
@@ -228,6 +231,36 @@ export const en = {
     clearText:
       'This deletes all synced artists, releases and songs, the queue, the sync progress and the cached artwork from this phone. Your Spotify login, credentials and the playlist in Spotify are kept.\n\nSyncing everything again can take several days because of Spotify’s limits.',
     clearFailed: 'Could not clear the library',
+
+    genresTitle: 'Genres',
+    genresHelp: 'Genres for your artists from Spotify and the free MusicBrainz database. The first sync takes a while.',
+    genresStored: '{{genres}} from {{artists}}',
+    syncGenres: 'Sync genres from MusicBrainz',
+    genresProgress: 'Looking up genres {{done}}/{{total}}',
+    genresDoneTitle: 'Genres synced',
+    genresDoneText_one: 'Looked up {{count, number}} artist; {{found, number}} have genres on MusicBrainz.',
+    genresDoneText_other: 'Looked up {{count, number}} artists; {{found, number}} have genres on MusicBrainz.',
+    genresUpToDateTitle: 'Genres are up to date',
+    genresUpToDateText: 'Every artist was looked up on MusicBrainz within the last 90 days.',
+    genresFailedTitle: 'Genre sync stopped',
+    genresResumeHint: 'Everything found so far is saved; the next genre sync continues from there.',
+    clearGenres: 'Clear genres',
+    clearGenresTitle: 'Clear genres?',
+    clearGenresText:
+      'This deletes all genres and MusicBrainz lookups from this phone. Spotify’s genres come back with the next library sync; MusicBrainz genres need a new genre sync.',
+    clearGenresFailed: 'Could not clear the genres',
+  },
+  genres: {
+    search: 'Search {{what}}',
+    shuffleLabel: 'Shuffle {{genre}}',
+    noMatches: 'No matching genres',
+    nothingToShuffleTitle: 'Nothing to shuffle',
+    nothingToShuffleText: 'Your filters on the Queue tab remove every song of this genre.',
+    shuffleFailedTitle: 'Could not shuffle',
+    networkError: 'Network error talking to MusicBrainz: {{message}}',
+    busy: 'MusicBrainz is busy right now. Try again later.',
+    apiError: 'MusicBrainz error {{status}}',
+    alreadyRunning: 'A genre sync is already running.',
   },
   /** Background sync results, saved as a code and shown in the current language. */
   backgroundSync: {

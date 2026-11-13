@@ -176,7 +176,8 @@ function parseSuccessBody<T>(method: string, text: string): T | null {
 
 type Image = { url: string; width: number | null; height: number | null };
 
-export type SpotifyArtist = { id: string; name: string; images?: Image[] };
+/** `genres` is deprecated by Spotify and may be missing or empty for Development Mode apps. */
+export type SpotifyArtist = { id: string; name: string; images?: Image[]; genres?: string[] };
 
 export type SpotifyAlbum = {
   id: string;

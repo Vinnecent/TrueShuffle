@@ -4,6 +4,7 @@ import * as Sharing from 'expo-sharing';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { invalidateShuffleCandidates } from '@/db/queries';
+import { notifyGenresChanged } from '@/genres/events';
 import { t } from '@/i18n';
 import type { Translations } from '@/i18n/locales/en';
 import { getStoredPlaylistId, restorePlaylistId, SENT_QUEUE_KEY } from '@/spotify/playback';
@@ -406,5 +407,7 @@ export async function importLibrary(db: SQLiteDatabase, backup: Backup): Promise
   });
   // An imported library can look the same as the old one to the shuffle's change check.
   invalidateShuffleCandidates();
+  // The old artists' genres are gone; backups do not contain genres.
+  notifyGenresChanged();
   if (backup.playlistId) await restorePlaylistId(backup.playlistId);
 }

@@ -36,7 +36,9 @@ import {
 } from '@/backup/backup';
 import { Button } from '@/components/ui';
 import { getLanguageSetting, i18n, LANGUAGES, setLanguageSetting, systemLanguage, type LanguageSetting } from '@/i18n';
-import { clearLibrary, getLibraryStats, type LibraryStats } from '@/db/queries';
+import { clearGenres, clearLibrary, getGenreStats, getLibraryStats, type LibraryStats } from '@/db/queries';
+import { notifyGenresChanged } from '@/genres/events';
+import { isGenreSyncRunning, syncGenres, type GenreSyncProgress } from '@/genres/musicbrainz';
 import { RateLimitError } from '@/spotify/api';
 import {
   ensureLoggedInWithScopes,
@@ -76,6 +78,10 @@ export default function SettingsScreen() {
     status: BackgroundSyncStatus | null;
   } | null>(null);
   const [togglingBackground, setTogglingBackground] = useState(false);
+  const [genreStats, setGenreStats] = useState<{ genres: number; artists: number }>({ genres: 0, artists: 0 });
+  /** Set while the MusicBrainz genre sync runs (also after leaving and reopening Settings). */
+  const [genreProgress, setGenreProgress] = useState<GenreSyncProgress | null>(null);
+  const [clearingGenres, setClearingGenres] = useState(false);
   /** False until the stored state is read, so the screen does not first render without the other sections. */
   const [loaded, setLoaded] = useState(false);
 
@@ -85,6 +91,7 @@ export default function SettingsScreen() {
     setStats(state.stats);
     setRateLimitedUntil(state.rateLimitedUntil);
     setBackground(state.background);
+    setGenreStats(state.genreStats);
     setLoaded(true);
   }, []);
 
@@ -185,6 +192,44 @@ export default function SettingsScreen() {
       await refresh();
     }
   };
+
+  const runGenreSync = async () => {
+    if (isGenreSyncRunning()) return;
+    setGenreProgress({ done: 0, total: 0 });
+    try {
+      const result = await syncGenres(db, setGenreProgress);
+      Alert.alert(
+        result.checked === 0 ? t('settings.genresUpToDateTitle') : t('settings.genresDoneTitle'),
+        result.checked === 0
+          ? t('settings.genresUpToDateText')
+          : t('settings.genresDoneText', { count: result.checked, found: result.found }),
+      );
+    } catch (e) {
+      Alert.alert(t('settings.genresFailedTitle'), `${(e as Error).message}\n\n${t('settings.genresResumeHint')}`);
+    } finally {
+      setGenreProgress(null);
+      await refresh();
+    }
+  };
+
+  const wipeGenres = async () => {
+    setClearingGenres(true);
+    try {
+      await clearGenres(db);
+      notifyGenresChanged();
+    } catch (e) {
+      Alert.alert(t('settings.clearGenresFailed'), (e as Error).message);
+    } finally {
+      setClearingGenres(false);
+      await refresh();
+    }
+  };
+
+  const confirmClearGenres = () =>
+    Alert.alert(t('settings.clearGenresTitle'), t('settings.clearGenresText'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('settings.clearGenres'), style: 'destructive', onPress: wipeGenres },
+    ]);
 
   const wipeLibrary = async () => {
     setClearing(true);
@@ -404,6 +449,40 @@ export default function SettingsScreen() {
             )}
 
             <View style={screen.divider} />
+            <Text style={screen.sectionTitle}>{t('settings.genresTitle')}</Text>
+            <Text style={screen.help}>{t('settings.genresHelp')}</Text>
+            {genreStats.genres > 0 && (
+              <Text style={screen.help}>
+                {t('settings.genresStored', {
+                  genres: countLabel(genreStats.genres, 'genre'),
+                  artists: countLabel(genreStats.artists, 'artist'),
+                })}
+              </Text>
+            )}
+            <Button
+              title={t('settings.syncGenres')}
+              variant="secondary"
+              onPress={runGenreSync}
+              loading={genreProgress !== null}
+              disabled={!hasLibrary || genreProgress !== null || clearing || clearingGenres}
+            />
+            {genreProgress && genreProgress.total > 0 && (
+              <View style={screen.status}>
+                <Text style={screen.statusText}>
+                  {t('settings.genresProgress', { done: genreProgress.done, total: genreProgress.total })}
+                </Text>
+                <View style={screen.progressTrack}>
+                  <View
+                    style={[
+                      screen.progressFill,
+                      { width: `${Math.round((genreProgress.done / genreProgress.total) * 100)}%` },
+                    ]}
+                  />
+                </View>
+              </View>
+            )}
+
+            <View style={screen.divider} />
             <Text style={screen.sectionTitle}>{t('settings.backupTitle')}</Text>
             <Text style={screen.help}>{t('settings.backupHelp')}</Text>
             <View style={screen.buttonRow}>
@@ -435,13 +514,22 @@ export default function SettingsScreen() {
                 {connected && (
                   <Button title={t('settings.disconnect')} variant="danger" onPress={disconnect} disabled={syncing} />
                 )}
+                {genreStats.genres > 0 && (
+                  <Button
+                    title={t('settings.clearGenres')}
+                    variant="danger"
+                    onPress={confirmClearGenres}
+                    loading={clearingGenres}
+                    disabled={genreProgress !== null || clearingGenres || clearing}
+                  />
+                )}
                 {hasLibrary && (
                   <Button
                     title={t('settings.clearLibrary')}
                     variant="danger"
                     onPress={confirmClearLibrary}
                     loading={clearing}
-                    disabled={syncing || clearing}
+                    disabled={syncing || clearing || genreProgress !== null}
                   />
                 )}
               </>
@@ -601,7 +689,7 @@ function CopyRedirectUri() {
 }
 
 async function loadState(db: SQLiteDatabase) {
-  const [creds, loggedIn, stats, rateLimitedUntil, bgAvailable, bgEnabled, bgStatus] =
+  const [creds, loggedIn, stats, rateLimitedUntil, bgAvailable, bgEnabled, bgStatus, genreStats] =
     await Promise.all([
       getCredentials(),
       isLoggedIn(),
@@ -610,6 +698,7 @@ async function loadState(db: SQLiteDatabase) {
       isBackgroundSyncAvailable().catch(() => false),
       isBackgroundSyncEnabled().catch(() => false),
       getBackgroundSyncStatus(db),
+      getGenreStats(db),
     ]);
   return {
     creds,
@@ -617,6 +706,7 @@ async function loadState(db: SQLiteDatabase) {
     stats,
     rateLimitedUntil,
     background: { available: bgAvailable, enabled: bgEnabled, status: bgStatus },
+    genreStats,
   };
 }
 

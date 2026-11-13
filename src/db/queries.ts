@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { notifyGenresChanged } from '@/genres/events';
 import { pickRandomFromGroups, pickRandomUnique } from '@/lib/shuffle';
 
 /** Songs per queue; at most Spotify's limit for replacing a playlist in one request (PLAYLIST_REPLACE_LIMIT). */
@@ -333,8 +334,11 @@ async function getArtistShuffleCandidates(
 type ShuffleCandidates = {
   /** Every song once. */
   songs: ShuffleCandidate[];
-  /** The songs grouped by followed artist; a song on a release shared by several artists is in each group. */
-  byArtist: ShuffleCandidate[][];
+  /**
+   * The songs grouped by followed artist (keyed by artist ID); a song on a release shared by several artists
+   * is in each group.
+   */
+  byArtist: Map<string, ShuffleCandidate[]>;
 };
 
 /**
@@ -384,7 +388,7 @@ async function getShuffleCandidates(db: SQLiteDatabase, filters: ShuffleFilters)
     if (list) list.push(row);
     else byArtist.set(row.artist_id, [row]);
   }
-  const candidates = { songs: [...songs.values()], byArtist: [...byArtist.values()] };
+  const candidates = { songs: [...songs.values()], byArtist };
   candidateCache = { key, candidates };
   return candidates;
 }
@@ -500,19 +504,34 @@ const songKey = (t: ShuffleCandidate) => `${t.name.trim().toLowerCase()}\u0000${
 export async function generateShuffledQueue(
   db: SQLiteDatabase,
   filters: ShuffleFilters,
-  { artistId, weighting = DEFAULT_ARTIST_WEIGHTING }: { artistId?: string; weighting?: ArtistWeighting } = {},
+  {
+    artistId,
+    genre,
+    weighting = DEFAULT_ARTIST_WEIGHTING,
+  }: { artistId?: string; genre?: string; weighting?: ArtistWeighting } = {},
 ): Promise<number> {
   let picked: ShuffleCandidate[];
   if (artistId) {
     picked = pickRandomUnique(await getArtistShuffleCandidates(db, filters, artistId), MAX_QUEUE_SIZE, songKey);
-  } else if (weighting === 'song') {
-    picked = pickRandomUnique((await getShuffleCandidates(db, filters)).songs, MAX_QUEUE_SIZE, songKey);
   } else {
-    const groups = (await getShuffleCandidates(db, filters)).byArtist.map((items) => ({
-      weight: weighting === 'balanced' ? Math.sqrt(items.length) : 1,
-      items,
-    }));
-    picked = pickRandomFromGroups(groups, MAX_QUEUE_SIZE, songKey);
+    const candidates = await getShuffleCandidates(db, filters);
+    let byArtist = [...candidates.byArtist.values()];
+    let songs = candidates.songs;
+    if (genre !== undefined) {
+      // Only the artists with this genre (excluded artists are not in the candidates anyway).
+      const ids = await getGenreArtistIds(db, genre);
+      byArtist = ids.map((id) => candidates.byArtist.get(id)).filter((g): g is ShuffleCandidate[] => !!g);
+      songs = [...new Map(byArtist.flat().map((t) => [t.id, t])).values()];
+    }
+    if (weighting === 'song') {
+      picked = pickRandomUnique(songs, MAX_QUEUE_SIZE, songKey);
+    } else {
+      const groups = byArtist.map((items) => ({
+        weight: weighting === 'balanced' ? Math.sqrt(items.length) : 1,
+        items,
+      }));
+      picked = pickRandomFromGroups(groups, MAX_QUEUE_SIZE, songKey);
+    }
   }
 
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -552,6 +571,117 @@ export async function getKnownArtistIds(db: SQLiteDatabase, ids: string[]): Prom
     ids,
   );
   return new Set(rows.map((r) => r.id));
+}
+
+// ---------------------------------------------------------------- genres
+
+export type GenreRow = { genre: string; artists: number; songs: number };
+
+/** Lower case, trimmed, without duplicates or empty names, so the same genre from two sources is one genre. */
+function normalizeGenres(genres: string[]): string[] {
+  return [...new Set(genres.map((g) => g.trim().toLowerCase()).filter(Boolean))];
+}
+
+/** Replaces the genres one source gave an artist. Works inside a transaction too (pass its connection). */
+export async function replaceArtistGenres(
+  db: SQLiteDatabase,
+  artistId: string,
+  source: 'spotify' | 'musicbrainz',
+  genres: string[],
+): Promise<void> {
+  await db.runAsync('DELETE FROM artist_genres WHERE artist_id = ? AND source = ?', artistId, source);
+  for (const genre of normalizeGenres(genres)) {
+    await db.runAsync(
+      'INSERT OR IGNORE INTO artist_genres (artist_id, genre, source) VALUES (?, ?, ?)',
+      artistId,
+      genre,
+      source,
+    );
+  }
+}
+
+/** How many distinct genres are stored, and how many artists have at least one. */
+export async function getGenreStats(db: SQLiteDatabase): Promise<{ genres: number; artists: number }> {
+  const row = await db.getFirstAsync<{ genres: number; artists: number }>(
+    'SELECT COUNT(DISTINCT genre) AS genres, COUNT(DISTINCT artist_id) AS artists FROM artist_genres',
+  );
+  return { genres: row?.genres ?? 0, artists: row?.artists ?? 0 };
+}
+
+/** Whether any genre is stored (the Genres tab is only shown then). */
+export async function hasGenres(db: SQLiteDatabase): Promise<boolean> {
+  const row = await db.getFirstAsync<{ found: number }>('SELECT EXISTS (SELECT 1 FROM artist_genres) AS found');
+  return row?.found === 1;
+}
+
+/**
+ * Every genre of the included artists, with how many artists have it and how many songs are on their releases
+ * (before the shuffle filters), most songs first. Genres without any synced song yet are left out, since there
+ * is nothing to shuffle; they show up once their artists' releases are synced.
+ */
+export function getGenres(db: SQLiteDatabase): Promise<GenreRow[]> {
+  return db.getAllAsync<GenreRow>(`
+    SELECT g.genre, COUNT(DISTINCT g.artist_id) AS artists, COUNT(DISTINCT t.id) AS songs
+    FROM (SELECT DISTINCT artist_id, genre FROM artist_genres
+          WHERE artist_id NOT IN (SELECT artist_id FROM excluded_artists)) g
+    LEFT JOIN artist_albums aa ON aa.artist_id = g.artist_id
+    LEFT JOIN tracks t        ON t.album_id = aa.album_id
+    GROUP BY g.genre
+    HAVING songs > 0
+    ORDER BY songs DESC, g.genre
+  `);
+}
+
+/** IDs of the artists with this genre, from any source. */
+export async function getGenreArtistIds(db: SQLiteDatabase, genre: string): Promise<string[]> {
+  const rows = await db.getAllAsync<{ artist_id: string }>(
+    'SELECT DISTINCT artist_id FROM artist_genres WHERE genre = ?',
+    genre,
+  );
+  return rows.map((r) => r.artist_id);
+}
+
+/** Deletes every stored genre and MusicBrainz lookup; Spotify's genres come back with the next sync. */
+export async function clearGenres(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync('DELETE FROM artist_genres; DELETE FROM musicbrainz_artists;');
+}
+
+/** An artist the MusicBrainz genre sync still has to look up (or look up again). */
+export type GenreSyncArtist = { id: string; name: string; mbid: string | null };
+
+/**
+ * Included artists not looked up on MusicBrainz yet, then those looked up before `olderThan` (oldest first).
+ * Excluded artists are skipped, as in the Spotify sync.
+ */
+export function getArtistsDueForGenres(db: SQLiteDatabase, olderThan: string): Promise<GenreSyncArtist[]> {
+  return db.getAllAsync<GenreSyncArtist>(
+    `SELECT ar.id, ar.name, mb.mbid
+     FROM artists ar
+     LEFT JOIN musicbrainz_artists mb ON mb.artist_id = ar.id
+     WHERE ar.id NOT IN (SELECT artist_id FROM excluded_artists)
+       AND (mb.artist_id IS NULL OR mb.synced_at < ?)
+     ORDER BY mb.synced_at IS NOT NULL, mb.synced_at, ar.name COLLATE NOCASE`,
+    olderThan,
+  );
+}
+
+/** Saves one artist's MusicBrainz lookup: its ID (null if not on MusicBrainz) and genres. */
+export async function saveMusicBrainzArtist(
+  db: SQLiteDatabase,
+  artistId: string,
+  mbid: string | null,
+  genres: string[],
+): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      `INSERT INTO musicbrainz_artists (artist_id, mbid, synced_at) VALUES (?, ?, ?)
+       ON CONFLICT(artist_id) DO UPDATE SET mbid = excluded.mbid, synced_at = excluded.synced_at`,
+      artistId,
+      mbid,
+      new Date().toISOString(),
+    );
+    await replaceArtistGenres(txn, artistId, 'musicbrainz', genres);
+  });
 }
 
 export async function setArtistExcluded(db: SQLiteDatabase, artistId: string, excluded: boolean) {
@@ -625,6 +755,8 @@ export async function clearLibrary(db: SQLiteDatabase): Promise<void> {
     `);
   });
   invalidateShuffleCandidates();
+  // Genres went with the artists.
+  notifyGenresChanged();
 }
 
 // ---------------------------------------------------------------- meta

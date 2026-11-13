@@ -80,7 +80,7 @@ export function formatNumber(value: number): string {
 }
 
 /** Things counted in the UI; each has singular and plural forms in the translations (`count.*`). */
-export type CountUnit = 'artist' | 'release' | 'song' | 'excludedArtist';
+export type CountUnit = 'artist' | 'release' | 'song' | 'excludedArtist' | 'genre';
 
 /** A count with the right word form in the app language, e.g. "1 song", "2 songs", "1,204 releases". */
 export function countLabel(count: number, unit: CountUnit): string {
