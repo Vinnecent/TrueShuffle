@@ -57,7 +57,7 @@ export function NowPlaying({ state, queueUris }: Props) {
   return (
     <View style={card.container}>
       <View style={card.row}>
-        <Artwork uri={stored?.image_url ?? null} size={48} />
+        <Artwork uri={stored?.image_url ?? null} size={48} placeholderColor={colors.highlight} />
         <View style={{ flex: 1 }}>
           <Text style={[card.label, !playing && { color: colors.textMuted }]}>
             {playing ? t('nowPlaying.playing') : t('nowPlaying.paused')}

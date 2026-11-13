@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -42,6 +43,7 @@ export function Artwork({
   round,
   fadeIn = true,
   onDisplay,
+  placeholderColor = colors.surfaceRaised,
 }: {
   uri: string | null;
   size?: number;
@@ -50,6 +52,8 @@ export function Artwork({
   fadeIn?: boolean;
   /** Called once the picture is on screen. */
   onDisplay?: () => void;
+  /** Background of the "no picture" tile; set it where the default would match what is behind it. */
+  placeholderColor?: string;
 }) {
   const style = { width: size, height: size, borderRadius: round ? size / 2 : 4 };
   return uri ? (
@@ -65,7 +69,10 @@ export function Artwork({
       onDisplay={onDisplay}
     />
   ) : (
-    <View style={[style, styles.artwork]} />
+    // No picture (e.g. a song by an artist you don't follow, playing in Spotify): a note, or a person for artists.
+    <View style={[style, styles.placeholder, { backgroundColor: placeholderColor }]}>
+      <Ionicons name={round ? 'person' : 'musical-note'} size={Math.round(size * 0.45)} color={colors.textMuted} />
+    </View>
   );
 }
 
@@ -91,6 +98,7 @@ export const styles = StyleSheet.create({
   dangerButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.danger },
   buttonText: { color: colors.text, fontSize: 15, fontWeight: '700' },
   artwork: { backgroundColor: colors.surfaceRaised },
+  placeholder: { alignItems: 'center', justifyContent: 'center' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
   emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
   muted: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
