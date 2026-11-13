@@ -125,7 +125,7 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
 
   const translateY = pop.interpolate({ inputRange: [0, 1], outputRange: [0, shift] });
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] });
-  // The row's square background crossfades with a rounded highlight. Opening, it starts in the pressed colour
+  // The row's own background crossfades with the highlight colour. Opening, it starts in the pressed colour
   // the held row already shows, so nothing changes colour; closing, it fades back to the row's normal
   // background (swapped while invisible), so it looks like the list row again when it lands.
   // Staggered, so one of the two layers is always opaque and the dimmed screen never shows through.
@@ -156,6 +156,7 @@ export function QueueItemMenu({ target, onRemove, onExclude, onSettled, onClose,
             <Animated.View
               style={[
                 StyleSheet.absoluteFill,
+                menu.plain,
                 {
                   backgroundColor: !closing ? colors.highlight : current ? colors.surface : colors.background,
                   opacity: plainOpacity,
@@ -232,6 +233,8 @@ function MenuOption({
 
 const menu = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0, 0, 0, 0.7)' },
+  // Both layers have the queue row's own rounding, so the corners stay round while they crossfade.
+  plain: { borderRadius: 12 },
   highlight: { borderRadius: 12, backgroundColor: colors.highlight },
   rowInner: { backgroundColor: 'transparent' },
   card: {

@@ -100,7 +100,7 @@ export const QueueItem = memo(
 
 const row = StyleSheet.create({
   hidden: { opacity: 0 },
-  container: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
+  container: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
   current: { backgroundColor: colors.surface },
   // Wide enough for three digits (the queue holds up to 100 songs); the icon column matches it.
   index: { color: colors.textMuted, width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] },

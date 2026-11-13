@@ -256,7 +256,7 @@ export default function QueueScreen() {
         </View>
       </View>
 
-      <View ref={listFrameRef} style={{ flex: 1 }} collapsable={false}>
+      <View ref={listFrameRef} style={{ flex: 1, paddingHorizontal: 8 }} collapsable={false}>
         <FlatList
           ref={listRef}
           data={queue}
